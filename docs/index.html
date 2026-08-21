@@ -155,12 +155,13 @@
 
   <div class="card">
     <h3>立体プレビュー</h3>
-    <canvas id="solid" width="340" height="300"></canvas>
+    <canvas id="solid" width="340" height="300" style="cursor:grab;touch-action:none"></canvas>
     <div class="row" style="margin-top:10px">
       <button class="small" onclick="setView('hand')">斜め</button>
       <span id="viewFaces"></span>
       <button id="spin" class="small on" onclick="toggleSpin()">回す</button>
     </div>
+    <p class="hint">ドラッグで好きな向きに回せます。動かすと自動で回るのが止まります。</p>
     <p class="hint bad" id="overflow"></p>
     <p class="hint" id="boxes"></p>
     <p class="hint" id="solidHint"></p>
@@ -963,6 +964,49 @@ function toggleSpin() {
   spin = !spin;
   document.getElementById("spin").classList.toggle("on", spin);
 }
+
+/** 自動で回るのを止める。⚠️ ボタンの見た目も一緒に戻さないと、押しても戻らなくなる。 */
+function stopSpin() {
+  if (!spin) { return; }
+  spin = false;
+  document.getElementById("spin").classList.remove("on");
+}
+
+/*
+ * ドラッグで回す。
+ *
+ * 🔴 触った時点で自動回転を止める（人間の指示 2026-08-21）。
+ * ⚠️ 止めないと、手で向けた先から勝手に回り続けて狙った向きで見られない。
+ *
+ * ⚠️ 上下は π/2 の手前で止める。真上・真下まで行くと平らに潰れて何も見えなくなる。
+ */
+const TILT_MAX = Math.PI / 2 - 0.02;
+let dragging = null;
+
+solid.addEventListener("pointerdown", (e) => {
+  stopSpin();
+  dragging = { x: e.clientX, y: e.clientY };
+  solid.setPointerCapture(e.pointerId);   // ⚠️ 枠の外へ出ても追えるようにする
+  solid.style.cursor = "grabbing";
+  e.preventDefault();
+});
+
+solid.addEventListener("pointermove", (e) => {
+  if (!dragging) { return; }
+  yaw += (e.clientX - dragging.x) * 0.01;
+  pitch = Math.max(-TILT_MAX, Math.min(TILT_MAX,
+      pitch + (e.clientY - dragging.y) * 0.01));
+  dragging = { x: e.clientX, y: e.clientY };
+});
+
+function endDrag(e) {
+  if (!dragging) { return; }
+  dragging = null;
+  solid.style.cursor = "grab";
+  try { solid.releasePointerCapture(e.pointerId); } catch (ignored) { /* もう外れている */ }
+}
+solid.addEventListener("pointerup", endDrag);
+solid.addEventListener("pointercancel", endDrag);
 
 function rot(p) {
   const [x,y,z] = p;
