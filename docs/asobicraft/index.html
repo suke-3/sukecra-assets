@@ -1,0 +1,682 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Asobicraft シナリオエディタ</title>
+<style>
+  :root {
+    --bg:#f6f7f9; --panel:#fff; --line:#d8dbe0; --text:#1b1d21; --dim:#666c75;
+    --accent:#1f6feb; --ok:#1a7f37; --warn:#9a6700; --bad:#cf222e; --chip:#eef1f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#16181c; --panel:#1e2127; --line:#31353d; --text:#e8eaed; --dim:#9aa0a8;
+      --accent:#4a9eff; --ok:#4ac26b; --warn:#d4a72c; --bad:#ff6b6b; --chip:#272b32;
+    }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font-family:"Segoe UI","Yu Gothic UI",system-ui,sans-serif; font-size:14px; }
+  header { position:sticky; top:0; z-index:10; background:var(--panel);
+           border-bottom:1px solid var(--line); padding:12px 16px;
+           display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  h1 { font-size:16px; margin:0 12px 0 0; }
+  main { max-width:1100px; margin:0 auto; padding:16px; }
+  button { font:inherit; padding:6px 12px; border:1px solid var(--line);
+           background:var(--panel); color:var(--text); border-radius:6px; cursor:pointer; }
+  button:hover { border-color:var(--accent); }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  button.danger { color:var(--bad); }
+  button.small { padding:3px 8px; font-size:12px; }
+  input, select, textarea { font:inherit; padding:5px 8px; border:1px solid var(--line);
+           background:var(--panel); color:var(--text); border-radius:6px; }
+  input[type=number] { width:90px; }
+  input[type=text] { min-width:180px; }
+  textarea { width:100%; min-height:280px; font-family:ui-monospace,Consolas,monospace; font-size:12px; }
+  .tabs { display:flex; gap:4px; margin-bottom:16px; flex-wrap:wrap; }
+  .tabs button.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:8px;
+          padding:14px; margin-bottom:12px; }
+  .card h3 { margin:0 0 10px; font-size:14px; display:flex; align-items:center; gap:8px; }
+  .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
+  label { color:var(--dim); min-width:120px; }
+  .hint { color:var(--dim); font-size:12px; margin:4px 0 0; }
+  .chip { background:var(--chip); border-radius:99px; padding:2px 10px; font-size:12px; color:var(--dim); }
+  .warn { color:var(--warn); }
+  .bad { color:var(--bad); }
+  .ok { color:var(--ok); }
+  .phase { border-left:3px solid var(--accent); padding-left:10px; margin:8px 0; }
+  .spacer { flex:1; }
+  .muted { color:var(--dim); }
+  .note { background:var(--chip); border-radius:6px; padding:10px 12px; margin-bottom:14px;
+          font-size:13px; line-height:1.7; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:8px; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Asobicraft シナリオエディタ</h1>
+  <button onclick="newScenario()">白紙から</button>
+  <select id="tpl" onchange="if(this.value){fromTemplate(this.value);this.value='';}">
+    <option value="">テンプレートから…</option>
+    <option value="race">レース</option>
+    <option value="soccer">サッカー</option>
+    <option value="werewolf">人狼</option>
+  </select>
+  <label class="hidden"></label>
+  <button onclick="document.getElementById('file').click()">ファイルを開く</button>
+  <input type="file" id="file" accept=".json" style="display:none" onchange="openFile(event)">
+  <button class="primary" onclick="download()">JSONを保存</button>
+  <button onclick="loadDraft()||alert('下書きはありません')">下書きを開く</button>
+  <button onclick="clearDraft()">下書きを消す</button>
+  <span class="spacer"></span>
+  <span class="chip" id="draft">下書きなし</span>
+  <span class="chip" id="idchip">ID: —</span>
+</header>
+
+<main>
+  <div class="tabs">
+    <button id="t-basic" class="active" onclick="showTab('basic')">基本</button>
+    <button id="t-stages" onclick="showTab('stages')">ステージとフェーズ</button>
+    <button id="t-roles" onclick="showTab('roles')">役職</button>
+    <button id="t-sport" onclick="showTab('sport')">得点ルール</button>
+    <button id="t-display" onclick="showTab('display')">表示と挙動</button>
+    <button id="t-json" onclick="showTab('json')">JSON</button>
+  </div>
+
+  <div id="panel"></div>
+</main>
+
+<script>
+// ── 選択肢。Java 側の enum 名とそろえること（Gson は名前でやり取りする）
+const E = {
+  groupMode:   [["TEAM","チーム（全員に見える）"],["SOLO","個人戦（レース・バトロワ）"],["ROLE","役職（本人にだけ知らせる）"]],
+  othersHp:    [["NONE","出さない"],["BELOW_NAME","名前の下"],["SIDEBAR","サイドバー"]],
+  hpVisibility:[["ALL","全員に見せる"],["TEAM_ONLY","同じチームだけ"],["NONE","誰にも見せない"]],
+  timer:       [["COUNTDOWN","カウントダウン"],["COUNTUP","カウントアップ"],["NONE","出さない"]],
+  end:         [["TIME","時間切れ"],["ALL_INPUT","全員の入力が済んだ"],["STATE","特定の状態になった"],["MANUAL","手動"]],
+  textTarget:  [["CHAT","チャット"],["TITLE","画面中央"],["ACTIONBAR","アクションバー"]],
+  warp:        [["NONE","移動しない"],["ALL_SAME","全員同じ"],["PER_TEAM","チームごと"],["PER_PLAYER","個人ごと"]],
+  weather:     [["NONE","変えない"],["CLEAR","晴れ"],["RAIN","雨"],["THUNDER","嵐"]],
+  time:        [["NONE","変えない"],["MORNING","朝"],["NOON","昼"],["EVENING","夕方"],["NIGHT","夜"]],
+  transition:  [["NONE","そのまま"],["SLEEP","暗転（睡眠）"],["COUNTDOWN","秒読み"]],
+  win:         [["LAST_TEAM","最後に残ったチーム"],["LAST_PLAYER","最後に残った1人"],["VOTE","投票"],["GOAL","ゴール到達"],["TIME","時間切れ"],["SCORE","得点（サッカーなど）"],["NEAREST","ゴールに近い順（カーリング）"],["STROKES","打数が少ない順（ゴルフ）"],["MANUAL","手動"]],
+  action:      [["NONE","なし"],["INSPECT","調べる"],["DAMAGE","減らす"],["PROTECT","守る"],["VOTE_WEIGHT","票を変える"],["GIVE_ITEMS","物を渡す"],["TELEPORT","移動させる"]],
+  targets:     [["OTHERS","自分以外の生存者"],["ANYONE","生存者すべて"],["SELF","自分"],["NONE","選ばない"]],
+  teleportMode:[["VISIT","相手の部屋へ行く"],["SUMMON","相手を呼ぶ"],["SEND","相手を集合地点へ"]],
+};
+
+let data = null;
+let tab = 'basic';
+
+// ── 下書きの自動保存
+// 🔴 途中で閉じても失わない。ブラウザの中だけに置くので、サーバーには何も送らない。
+const DRAFT = "asobicraft_draft";
+let saveTimer = null;
+function saveDraft() {
+  if (!data) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    try {
+      localStorage.setItem(DRAFT, JSON.stringify({ at: Date.now(), data }));
+      const el = document.getElementById("draft");
+      if (el) el.textContent = "下書き保存 " + new Date().toLocaleTimeString();
+    } catch (e) { /* 保存できなくても編集は続けられる */ }
+  }, 400);
+}
+function loadDraft() {
+  try {
+    const raw = localStorage.getItem(DRAFT);
+    if (!raw) return false;
+    const saved = JSON.parse(raw);
+    if (!saved || !saved.data) return false;
+    data = saved.data;
+    render();
+    return true;
+  } catch (e) { return false; }
+}
+function clearDraft() {
+  try { localStorage.removeItem(DRAFT); } catch (e) { /* 使えない環境でも編集は続く */ }
+  const el = document.getElementById("draft");
+  if (el) el.textContent = "下書きなし";
+}
+
+function shortId() {
+  return ([1e7]+-1e3).replace(/[018]/g, c =>
+    (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c/4).toString(16)).slice(0,8);
+}
+
+function newPhase(name, sec) {
+  return { name:name||"フェーズ", durationSeconds:sec===undefined?60:sec,
+    timer:"COUNTDOWN", end:"TIME", allInputGraceSeconds:5,
+    startSound:null, endSound:null, text:"", textTarget:"TITLE", textPerTeam:false,
+    warp:"NONE", weather:"NONE", time:"NONE", transition:"NONE", ballCount:0, deathMessages:true };
+}
+function newStage(name) {
+  return { name:name||"ステージ", phases:[newPhase("フェーズ1",60)],
+    loop:false, win:"LAST_TEAM", timeLimitSeconds:0 };
+}
+function newRole(name) {
+  return { name:name||"役職", team:0, count:1, action:"NONE", usablePhase:"",
+    targets:"OTHERS", usesPerPhase:1, damageAmount:20, voteWeight:2,
+    teleportMode:"VISIT", knowsAllies:false, sharedRoom:false };
+}
+
+// ── テンプレート
+// 🔴 ゲーム内の /asobicraft new race / soccer / werewolf と同じ中身にそろえること。
+//    どちらから始めても同じものになるようにしておく。
+function fromTemplate(kind) {
+  newScenario();
+
+  if (kind === "race") {
+    const ready = newPhase("スタート前", 5);
+    ready.transition = "COUNTDOWN";
+    ready.text = "スタート！";
+    ready.warp = "ALL_SAME";
+
+    const run = newPhase("レース", 0);
+    run.timer = "COUNTUP";
+    run.end = "STATE";
+    run.textTarget = "TITLE";
+    run.warp = "ALL_SAME";
+
+    const st = newStage("レース");
+    st.phases = [ready, run];
+    st.win = "GOAL";
+
+    data.name = "レース";
+    data.stages = [st];
+    data.groupMode = "SOLO";
+    data.teamCount = 1;
+    data.othersHp = "NONE";
+    data.returnToStartOnGoal = true;
+  }
+
+  if (kind === "soccer") {
+    const play = newPhase("試合", 300);
+    play.timer = "COUNTDOWN";
+    play.end = "TIME";
+    play.text = "キックオフ！";
+    play.warp = "PER_TEAM";
+
+    const st = newStage("試合");
+    st.phases = [play];
+    st.win = "SCORE";
+    st.timeLimitSeconds = 300;
+
+    data.name = "サッカー";
+    data.stages = [st];
+    data.groupMode = "TEAM";
+    data.teamCount = 2;
+    data.maxPlayers = 10;
+    data.othersHp = "NONE";
+    data.spectatorForDead = false;
+  }
+
+  if (kind === "werewolf") {
+    // 目が覚めるところから始める。ループするので毎朝ここへ戻ってくる
+    const dawn = newPhase("夜明け", 5);
+    dawn.transition = "SLEEP";
+    dawn.text = "朝になりました";
+    dawn.time = "MORNING";
+
+    const discuss = newPhase("推理", 60);
+    discuss.text = "話し合ってください";
+    discuss.time = "NOON";
+
+    const wait1 = newPhase("待機", 5);
+
+    const vote = newPhase("投票", 30);
+    vote.end = "ALL_INPUT";
+    vote.text = "投票してください";
+
+    // 各自の部屋へ飛ぶ前に暗転させる。移動そのものを見せない
+    const dusk = newPhase("日没", 5);
+    dusk.transition = "SLEEP";
+    dusk.text = "夜になりました";
+    dusk.time = "NIGHT";
+    dusk.warp = "PER_PLAYER";
+
+    const night = newPhase("夜", 60);
+    night.end = "STATE";
+    night.warp = "PER_PLAYER";
+    night.time = "NIGHT";
+
+    const main = newStage("本編");
+    main.phases = [dawn, discuss, wait1, vote, dusk, night];
+    main.loop = true;
+    main.win = "LAST_TEAM";
+
+    const brawl = newPhase("決着", 0);
+    brawl.timer = "COUNTUP";
+    brawl.end = "STATE";
+    brawl.text = "最後のあがき！";
+    brawl.warp = "ALL_SAME";
+
+    const last = newStage("最後のあがき");
+    last.phases = [brawl];
+    last.win = "LAST_PLAYER";
+
+    data.name = "人狼";
+    data.stages = [main, last];
+    data.groupMode = "ROLE";
+    data.teamNames = ["村人", "人狼"];
+    // 🔴 他人のHPは出さない。殴り返された傷で人狼が割れるため
+    data.othersHp = "NONE";
+    data.hpVisibility = "NONE";
+    data.roles = [
+      Object.assign(newRole("人狼"), { team:1, count:1, action:"TELEPORT",
+        usablePhase:"夜", teleportMode:"VISIT", usesPerPhase:1,
+        knowsAllies:true, sharedRoom:true, damageAmount:1000 }),
+      Object.assign(newRole("占い師"), { team:0, count:1, action:"INSPECT", usablePhase:"夜" }),
+      Object.assign(newRole("騎士"),   { team:0, count:1, action:"PROTECT", usablePhase:"夜" }),
+      Object.assign(newRole("村人"),   { team:0, count:3, action:"NONE" })
+    ];
+  }
+
+  render();
+}
+
+function newScenario() {
+  data = {
+    id: shortId(), authorId:"", authorName:"",
+    name:"新しい試合",
+    stages:[newStage("ステージ1")],
+    roles:[],
+    giveItemIds:[],
+    gatherPoint:null, teamPoints:[], playerPoints:[], lockerPoints:[],
+    useLockers:false, locked:true, goalPoint:null, goalRadius:3.0,
+    startArea:null, goalArea:null, goalAreas:[], loadoutPoints:[],
+    ballEntityId:"minecraft:sulfur_cube", ballSpawnPoint:null, scoreToWin:0,
+    maxPlayers:16, groupMode:"TEAM", teamCount:2,
+    startingHp:20, showOwnHp:true, othersHp:"BELOW_NAME", hpVisibility:"ALL",
+    showMainBar:true, spectatorForDead:true, spectatorForWatchers:true,
+    lockHunger:true, announceWinner:true, fireworks:true,
+    returnToStartOnGoal:false, teamNames:[], showBallLabels:false, loadouts:[]
+  };
+  render();
+}
+
+function openFile(ev) {
+  const f = ev.target.files[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      data = JSON.parse(r.result);
+      // 🔴 古い形式にも耐える。無い項目は既定値で埋める
+      const base = { id:shortId(), authorId:"", authorName:"", roles:[], giveItemIds:[],
+        teamPoints:[], playerPoints:[], lockerPoints:[], useLockers:false,
+        goalRadius:3.0, locked:false, startingHp:20, showOwnHp:true, showMainBar:true,
+        goalAreas:[], loadoutPoints:[], ballEntityId:"minecraft:sulfur_cube", ballSpawnPoint:null, scoreToWin:0,
+        startArea:null, goalArea:null,
+        spectatorForDead:true, spectatorForWatchers:true, lockHunger:true,
+        announceWinner:true, fireworks:true, returnToStartOnGoal:false, teamNames:[], showBallLabels:false, loadouts:[] };
+      for (const k in base) if (data[k] === undefined) data[k] = base[k];
+      (data.stages||[]).forEach(s => (s.phases||[]).forEach(p => {
+        if (p.allInputGraceSeconds === undefined) p.allInputGraceSeconds = 5;
+        if (p.time === undefined) p.time = "NONE";
+        if (p.transition === undefined) p.transition = "NONE";
+        if (p.ballCount === undefined) p.ballCount = 0;
+      }));
+      render();
+    } catch (e) { alert("JSON として読めませんでした：" + e.message); }
+  };
+  r.readAsText(f, "utf-8");
+  ev.target.value = "";
+}
+
+function download() {
+  if (!data) return;
+  const name = (data.name || "無題").replace(/[\\/:*?"<>|]/g, "_").toLowerCase();
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type:"application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name + ".json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function showTab(t) { tab = t; render(); }
+
+// ── 部品
+function sel(value, key, onchange) {
+  return `<select onchange="${onchange}">` +
+    E[key].map(([v,l]) => `<option value="${v}"${v===value?" selected":""}>${l}</option>`).join("") +
+    `</select>`;
+}
+function chk(value, onchange, label) {
+  return `<label style="min-width:0"><input type="checkbox" ${value?"checked":""} onchange="${onchange}"> ${label}</label>`;
+}
+function clock(sec) {
+  sec = Math.max(0, sec|0);
+  const h = (sec/3600)|0, m = ((sec%3600)/60)|0, s = sec%60;
+  if (h) return `${h}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
+  if (m) return `${m}:${String(s).padStart(2,"0")}`;
+  return s + "秒";
+}
+
+function render() {
+  const p = document.getElementById("panel");
+  document.querySelectorAll(".tabs button").forEach(b => b.classList.remove("active"));
+  const tb = document.getElementById("t-" + tab); if (tb) tb.classList.add("active");
+
+  if (!data) { p.innerHTML = `<div class="card">「新規」か「ファイルを開く」から始めてください。</div>`; return; }
+  document.getElementById("idchip").textContent = "ID: " + data.id;
+
+  if (tab === "basic")   p.innerHTML = viewBasic();
+  if (tab === "stages")  p.innerHTML = viewStages();
+  if (tab === "roles")   p.innerHTML = viewRoles();
+  if (tab === "sport")   p.innerHTML = viewSport();
+  if (tab === "display") p.innerHTML = viewDisplay();
+  if (tab === "json")    p.innerHTML = viewJson();
+
+  saveDraft();
+}
+
+function viewBasic() {
+  const pts = (data.gatherPoint?1:0) + (data.goalPoint?1:0)
+    + (data.teamPoints||[]).length + (data.playerPoints||[]).length + (data.lockerPoints||[]).length;
+  return `
+  <div class="card">
+    <h3>基本</h3>
+    <div class="row"><label>シナリオ名</label>
+      <input type="text" value="${esc(data.name)}" oninput="data.name=this.value;saveDraft()">
+      <span class="muted">本の表紙と一覧に出ます</span></div>
+    <div class="row"><label>参加人数の上限</label>
+      <input type="number" min="1" max="50" value="${data.maxPlayers}"
+        oninput="data.maxPlayers=clampN(this.value,1,50)"></div>
+    <div class="row"><label>陣営の分け方</label>
+      ${sel(data.groupMode,"groupMode","data.groupMode=this.value;render()")}</div>
+    ${data.groupMode==="TEAM" ? `
+    <div class="row"><label>チーム数</label>
+      <input type="number" min="1" max="8" value="${data.teamCount}"
+        oninput="data.teamCount=clampN(this.value,1,8)"></div>` : `
+    <p class="hint">役職は「役職」タブで設定します。誰がどの役職かは<b>本人にしか知らされません</b>。</p>`}
+    <div class="row"><label>擬似HPの初期値</label>
+      <input type="number" min="1" max="1000" value="${data.startingHp}"
+        oninput="data.startingHp=clampN(this.value,1,1000)"></div>
+  </div>
+
+  <div class="card">
+    <h3>作者と地点</h3>
+    <div class="row"><label>作者</label>
+      <span class="muted">${data.authorName ? esc(data.authorName) : "（ゲーム内で本を発行したときに入ります）"}</span></div>
+    <div class="row"><label>登録済みの地点</label>
+      <span class="${pts?'ok':'warn'}">${pts} 件</span>
+      <span class="muted">集合${data.gatherPoint?"✓":"—"} ／ ゴール${data.goalPoint?"✓":"—"}
+        ／ チーム${(data.teamPoints||[]).length} ／ 個室${(data.playerPoints||[]).length}
+        ／ ロッカー${(data.lockerPoints||[]).length}</span></div>
+    <p class="hint">🔴 地点はゲーム内で登録します。ここでは変更できませんが、
+      読み込んだ内容はそのまま保たれます。</p>
+    <div class="row">${chk(data.useLockers,"data.useLockers=this.checked","会場に入るとき持ち物をロッカーへ預ける")}</div>
+    <div class="row">${chk(data.locked,"data.locked=this.checked;render()","削除よけ（ロック）")}</div>
+    <p class="hint">${data.locked
+      ? "🔒 <b>ロック中です。</b>作者以外は削除できません。ID を渡した相手による誤削除を防ぎます。"
+      : "ID を渡すと相手も読み込み・複製・本の発行ができます。誤って消されないようロックを推奨します。"}</p>
+  </div>`;
+}
+
+function viewStages() {
+  let h = "";
+  (data.stages||[]).forEach((s, si) => {
+    h += `<div class="card">
+      <h3>ステージ ${si+1}
+        <input type="text" value="${esc(s.name)}" oninput="data.stages[${si}].name=this.value">
+        <span class="spacer"></span>
+        <button class="small" onclick="moveStage(${si},-1)">↑</button>
+        <button class="small" onclick="moveStage(${si},1)">↓</button>
+        <button class="small danger" onclick="delStage(${si})">削除</button>
+      </h3>
+      <div class="row">
+        ${chk(s.loop,`data.stages[${si}].loop=this.checked`,"最後まで行ったら繰り返す")}
+        <label style="min-width:0">勝利条件</label>
+        ${sel(s.win,"win",`data.stages[${si}].win=this.value;render()`)}
+        <label style="min-width:0">制限時間(秒)</label>
+        <input type="number" min="0" value="${s.timeLimitSeconds||0}"
+          oninput="data.stages[${si}].timeLimitSeconds=clampN(this.value,0,86400);render()">
+        <span class="muted">${(s.timeLimitSeconds||0)===0?"制限なし":clock(s.timeLimitSeconds)}</span>
+      </div>`;
+
+    (s.phases||[]).forEach((ph, pi) => {
+      h += `<div class="phase">
+        <div class="row">
+          <input type="text" value="${esc(ph.name)}" oninput="data.stages[${si}].phases[${pi}].name=this.value">
+          <span class="muted">${ph.durationSeconds>0?clock(ph.durationSeconds):"無制限"}</span>
+          <span class="spacer"></span>
+          <button class="small" onclick="movePhase(${si},${pi},-1)">↑</button>
+          <button class="small" onclick="movePhase(${si},${pi},1)">↓</button>
+          <button class="small danger" onclick="delPhase(${si},${pi})">削除</button>
+        </div>
+        <div class="grid">
+          <div class="row"><label>長さ(秒)</label>
+            <input type="number" min="0" value="${ph.durationSeconds}"
+              oninput="data.stages[${si}].phases[${pi}].durationSeconds=clampN(this.value,0,86400);render()"></div>
+          <div class="row"><label>タイマー</label>
+            ${sel(ph.timer,"timer",`data.stages[${si}].phases[${pi}].timer=this.value`)}</div>
+          <div class="row"><label>終了条件</label>
+            ${sel(ph.end,"end",`data.stages[${si}].phases[${pi}].end=this.value;render()`)}</div>
+          ${ph.end==="ALL_INPUT" ? `
+          <div class="row"><label>締切までの待ち(秒)</label>
+            <input type="number" min="0" max="60" value="${ph.allInputGraceSeconds}"
+              oninput="data.stages[${si}].phases[${pi}].allInputGraceSeconds=clampN(this.value,0,60)"></div>` : ``}
+          <div class="row"><label>ワープ</label>
+            ${sel(ph.warp,"warp",`data.stages[${si}].phases[${pi}].warp=this.value`)}</div>
+          <div class="row"><label>天候</label>
+            ${sel(ph.weather,"weather",`data.stages[${si}].phases[${pi}].weather=this.value`)}</div>
+          <div class="row"><label>時刻</label>
+            ${sel(ph.time,"time",`data.stages[${si}].phases[${pi}].time=this.value`)}</div>
+          <div class="row"><label>入るときの演出</label>
+            ${sel(ph.transition,"transition",`data.stages[${si}].phases[${pi}].transition=this.value`)}</div>
+          <div class="row"><label>ボールの個数</label>
+            <input type="number" min="0" max="64" value="${ph.ballCount}"
+              oninput="data.stages[${si}].phases[${pi}].ballCount=clampN(this.value,0,64)">
+            <span class="hint">0 なら増やさない</span></div>
+        </div>
+        <div class="row"><label>表示テキスト</label>
+          <input type="text" style="flex:1" value="${esc(ph.text||"")}"
+            oninput="data.stages[${si}].phases[${pi}].text=this.value">
+          ${sel(ph.textTarget,"textTarget",`data.stages[${si}].phases[${pi}].textTarget=this.value`)}</div>
+        <div class="row">
+          ${chk(ph.textPerTeam,`data.stages[${si}].phases[${pi}].textPerTeam=this.checked`,"チームごとに出し分け")}
+          ${chk(ph.deathMessages,`data.stages[${si}].phases[${pi}].deathMessages=this.checked`,"死亡メッセージを出す")}
+        </div>
+      </div>`;
+    });
+
+    h += `<button class="small" onclick="addPhase(${si})">フェーズを追加</button>
+      <button class="small" onclick="addWait(${si})">待機(5秒)を追加</button>
+    </div>`;
+  });
+  h += `<button onclick="addStage()">ステージを追加</button>`;
+  return h;
+}
+
+function viewRoles() {
+  if (data.groupMode !== "ROLE") {
+    return `<div class="card"><h3>役職</h3>
+      <p class="warn">陣営の分け方が「チーム」になっているため、役職は使われません。
+      基本タブで「役職」に変えてください。</p></div>`;
+  }
+  const total = (data.roles||[]).reduce((a,r)=>a+(r.count||0),0);
+  let h = `<div class="card"><h3>合計</h3>
+    <p class="${total<=data.maxPlayers?'ok':'bad'}">${total} 人ぶん ／ 参加上限 ${data.maxPlayers} 人</p>
+    <p class="hint">足りない分は最初の役職に寄せられます。当日の人数合わせは
+      ゲーム内の <code>/asobicraft setup</code> でも変えられます（保存されません）。</p></div>`;
+
+  const phaseNames = [""];
+  (data.stages||[]).forEach(s => (s.phases||[]).forEach(p => {
+    if (!phaseNames.includes(p.name)) phaseNames.push(p.name);
+  }));
+
+  (data.roles||[]).forEach((r, i) => {
+    h += `<div class="card">
+      <h3><input type="text" value="${esc(r.name)}" oninput="data.roles[${i}].name=this.value">
+        <span class="spacer"></span>
+        <button class="small danger" onclick="delRole(${i})">削除</button></h3>
+      <div class="grid">
+        <div class="row"><label>チーム</label>
+          <input type="number" min="1" max="8" value="${(r.team||0)+1}"
+            oninput="data.roles[${i}].team=clampN(this.value,1,8)-1"></div>
+        <div class="row"><label>人数</label>
+          <input type="number" min="0" max="50" value="${r.count}"
+            oninput="data.roles[${i}].count=clampN(this.value,0,50);render()"></div>
+        <div class="row"><label>動作</label>
+          ${sel(r.action,"action",`data.roles[${i}].action=this.value;render()`)}</div>
+        <div class="row"><label>使えるとき</label>
+          <select onchange="data.roles[${i}].usablePhase=this.value">
+            ${phaseNames.map(n=>`<option value="${esc(n)}"${n===(r.usablePhase||"")?" selected":""}>${n===""?"いつでも":esc(n)}</option>`).join("")}
+          </select></div>
+        <div class="row"><label>選べる相手</label>
+          ${sel(r.targets,"targets",`data.roles[${i}].targets=this.value`)}</div>
+        <div class="row"><label>1フェーズあたり</label>
+          <input type="number" min="0" max="50" value="${r.usesPerPhase}"
+            oninput="data.roles[${i}].usesPerPhase=clampN(this.value,0,50)"> 回</div>
+        ${r.action==="DAMAGE" ? `<div class="row"><label>減らす量</label>
+          <input type="number" min="1" max="10000" value="${r.damageAmount}"
+            oninput="data.roles[${i}].damageAmount=clampN(this.value,1,10000)"></div>` : ``}
+        ${r.action==="VOTE_WEIGHT" ? `<div class="row"><label>票の重み</label>
+          <input type="number" min="1" max="10" value="${r.voteWeight}"
+            oninput="data.roles[${i}].voteWeight=clampN(this.value,1,10)"></div>` : ``}
+        ${r.action==="TELEPORT" ? `<div class="row"><label>移動の向き</label>
+          ${sel(r.teleportMode,"teleportMode",`data.roles[${i}].teleportMode=this.value`)}</div>` : ``}
+      </div>
+      <div class="row">
+        ${chk(r.knowsAllies,`data.roles[${i}].knowsAllies=this.checked`,"仲間を知る（人狼はオン）")}
+        ${chk(r.sharedRoom,`data.roles[${i}].sharedRoom=this.checked`,"夜は仲間と同じ部屋へ")}
+      </div>
+    </div>`;
+  });
+
+  h += `<button onclick="addRole()">役職を追加</button>
+    <button onclick="addPreset('werewolf')">人狼</button>
+    <button onclick="addPreset('seer')">占い師</button>
+    <button onclick="addPreset('knight')">騎士</button>
+    <button onclick="addPreset('villager')">村人</button>`;
+  return h;
+}
+
+function viewSport() {
+  const areaText = a => a ? `${Math.round(a.x1)},${Math.round(a.y1)},${Math.round(a.z1)} 〜 ${Math.round(a.x2)},${Math.round(a.y2)},${Math.round(a.z2)}` : "未設定";
+  return `
+  <div class="card"><h3>ボール</h3>
+    <div class="row"><label>ボールの種別</label>
+      <input type="text" style="min-width:280px" value="${esc(data.ballEntityId||"")}"
+        placeholder="minecraft:sulfur_cube"
+        oninput="data.ballEntityId=this.value;saveDraft()"></div>
+    <p class="hint">サルファーキューブは<b>中に入れたブロックで挙動が変わります</b>
+      （木材＝弾む／ハニカム＝粘つく／氷＝滑る）。12種類から選ぶ画面はゲーム内に出ます。</p>
+    <div class="row"><label>ボールを出す場所</label>
+      <span class="${data.ballSpawnPoint?'ok':'warn'}">${data.ballSpawnPoint?"設定済み":"未設定"}</span>
+      <span class="muted">ゲーム内で登録します</span></div>
+  </div>
+
+  <div class="card"><h3>得点</h3>
+    <div class="row"><label>この点数で決着</label>
+      <input type="number" min="0" max="100" value="${data.scoreToWin||0}"
+        oninput="data.scoreToWin=clampN(this.value,0,100);saveDraft()"></div>
+    <p class="hint">0 なら<b>時間切れまで</b>続け、点の多いほうが勝ちです。
+      制限時間はステージの設定にあります。</p>
+    <div class="row"><label>ゴール領域</label>
+      <span class="${(data.goalAreas||[]).length?'ok':'warn'}">${(data.goalAreas||[]).length} 件</span>
+      <span class="muted">添字＝そのチームが守るゴール</span></div>
+    ${(data.goalAreas||[]).map((a,i)=>`<p class="hint">チーム${i+1}：${areaText(a)}</p>`).join("")}
+    <p class="hint">🔴 勝利条件を<b>「得点」</b>にすると使われます。ステージのタブで設定してください。</p>
+  </div>
+
+  <div class="card"><h3>レースのスタートとゴール</h3>
+    <div class="row"><label>スタート領域</label>
+      <span class="${data.startArea?'ok':'warn'}">${areaText(data.startArea)}</span></div>
+    <div class="row"><label>ゴール領域</label>
+      <span class="${data.goalArea?'ok':'warn'}">${areaText(data.goalArea)}</span></div>
+    <p class="hint">領域にすると<b>ライン</b>として使えます。参加者はスタート領域に等間隔で並びます。
+      領域が未設定なら、1点＋半径で判定します。</p>
+  </div>
+
+  <div class="card"><h3>装備</h3>
+    <div class="row"><label>装備チェスト</label>
+      <span class="${(data.loadoutPoints||[]).length?'ok':'warn'}">${(data.loadoutPoints||[]).length} 件</span>
+      <span class="muted">添字＝チーム。1つなら全員に同じ装備</span></div>
+    <p class="hint">🔴 <b>チェストの中身がそのまま配られます。</b>
+      エンチャント付きの道具も、チェストに入れるだけで配れます。
+      配ったものは試合終了時に<b>必ず回収</b>されます。</p>
+  </div>
+
+  <div class="note">ここに出ている地点・領域・チェストは、すべて<b>ゲーム内で登録します</b>。
+    このエディタでは内容を確認できるだけで、変更しても保たれます。</div>`;
+}
+
+function viewDisplay() {
+  return `<div class="card"><h3>HPの見せ方</h3>
+    <div class="row">${chk(data.showOwnHp,"data.showOwnHp=this.checked","自分のHPを画面に出す")}</div>
+    <div class="row"><label>他人のHP</label>
+      ${sel(data.othersHp,"othersHp","data.othersHp=this.value;render()")}</div>
+    <div class="row"><label>見せる範囲</label>
+      ${sel(data.hpVisibility,"hpVisibility","data.hpVisibility=this.value")}</div>
+    <p class="hint">🔴 人狼では<b>「出さない」を推奨</b>します。殴り返された傷でHPが減ると、
+      翌朝に誰が人狼か割れてしまうためです。</p></div>
+
+  <div class="card"><h3>表示と演出</h3>
+    <div class="row">${chk(data.showMainBar,"data.showMainBar=this.checked","試合のBossBar（残り時間・進捗）を出す")}</div>
+    <div class="row">${chk(data.announceWinner,"data.announceWinner=this.checked","勝者を画面に出す")}</div>
+    <div class="row">${chk(data.fireworks,"data.fireworks=this.checked","勝者の位置に花火を上げる")}</div></div>
+
+  <div class="card"><h3>挙動</h3>
+    <div class="row">${chk(data.spectatorForDead,"data.spectatorForDead=this.checked","倒れたら観戦モードにする")}</div>
+    <div class="row">${chk(data.spectatorForWatchers,"data.spectatorForWatchers=this.checked","観覧者を観戦モードにする")}</div>
+    <div class="row">${chk(data.lockHunger,"data.lockHunger=this.checked","試合中は空腹を止める")}</div>
+    <div class="row">${chk(data.returnToStartOnGoal,"data.returnToStartOnGoal=this.checked","ゴールしたらスタートへ戻す（乗り物ごと）")}</div>
+    <div class="row">${chk(data.showBallLabels,"data.showBallLabels=this.checked","ボールに名札を付ける（個人戦は名前・チーム戦はチーム名）")}</div>
+    <p class="hint">レース向けの設定です。ゴール地点に人と馬が溜まって、後続が入れなくなるのを防ぎます。</p>
+    <p class="hint">天候と時刻はフェーズごとに設定します（「ステージとフェーズ」タブ）。
+      どちらも参加者の画面にだけ送る見た目で、湧きや作物は本来のまま進みます。</p></div>`;
+}
+
+function viewJson() {
+  return `<div class="card"><h3>JSON</h3>
+    <p class="hint">貼り付けて「読み込む」を押すと反映されます。保存は上の「JSONを保存」から。</p>
+    <textarea id="raw">${esc(JSON.stringify(data,null,2))}</textarea>
+    <div class="row" style="margin-top:8px">
+      <button onclick="loadRaw()">読み込む</button>
+      <button onclick="navigator.clipboard.writeText(document.getElementById('raw').value)">コピー</button>
+    </div></div>`;
+}
+
+// ── 操作
+function clampN(v,min,max){ v=parseInt(v,10); if(isNaN(v))v=min; return Math.max(min,Math.min(max,v)); }
+function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function addStage(){ data.stages.push(newStage("ステージ"+(data.stages.length+1))); render(); }
+function delStage(i){ if(data.stages.length>1){ data.stages.splice(i,1); render(); } }
+function moveStage(i,d){ const j=i+d; if(j<0||j>=data.stages.length)return;
+  const t=data.stages.splice(i,1)[0]; data.stages.splice(j,0,t); render(); }
+function addPhase(si){ data.stages[si].phases.push(newPhase("フェーズ"+(data.stages[si].phases.length+1),60)); render(); }
+function addWait(si){ data.stages[si].phases.push(newPhase("待機",5)); render(); }
+function delPhase(si,pi){ if(data.stages[si].phases.length>1){ data.stages[si].phases.splice(pi,1); render(); } }
+function movePhase(si,pi,d){ const a=data.stages[si].phases, j=pi+d; if(j<0||j>=a.length)return;
+  const t=a.splice(pi,1)[0]; a.splice(j,0,t); render(); }
+function addRole(){ data.roles.push(newRole("役職"+(data.roles.length+1))); render(); }
+function delRole(i){ data.roles.splice(i,1); render(); }
+function addPreset(kind){
+  const r = newRole();
+  if(kind==="werewolf"){ Object.assign(r,{name:"人狼",team:1,count:1,action:"TELEPORT",
+    usablePhase:"夜",teleportMode:"VISIT",usesPerPhase:1,knowsAllies:true,sharedRoom:true,damageAmount:1000}); }
+  if(kind==="seer"){ Object.assign(r,{name:"占い師",team:0,count:1,action:"INSPECT",usablePhase:"夜"}); }
+  if(kind==="knight"){ Object.assign(r,{name:"騎士",team:0,count:1,action:"PROTECT",usablePhase:"夜"}); }
+  if(kind==="villager"){ Object.assign(r,{name:"村人",team:0,count:3,action:"NONE"}); }
+  data.roles.push(r); render();
+}
+function loadRaw(){
+  try { data = JSON.parse(document.getElementById("raw").value); render(); }
+  catch(e){ alert("JSON として読めませんでした：" + e.message); }
+}
+
+// 前回の続きがあればそれを開く。無ければ新規。
+if (!loadDraft()) {
+  newScenario();
+}
+</script>
+</body>
+</html>
