@@ -993,7 +993,8 @@ solid.addEventListener("pointerdown", (e) => {
 
 solid.addEventListener("pointermove", (e) => {
   if (!dragging) { return; }
-  yaw += (e.clientX - dragging.x) * 0.01;
+  // ⚠️ 引いた向きへ回す。足すと左右が逆になる（実機で確認 2026-08-21）
+  yaw -= (e.clientX - dragging.x) * 0.01;
   pitch = Math.max(-TILT_MAX, Math.min(TILT_MAX,
       pitch + (e.clientY - dragging.y) * 0.01));
   dragging = { x: e.clientX, y: e.clientY };
