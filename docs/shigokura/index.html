@@ -267,6 +267,11 @@
     </span>
   </div>
   <div class="row only-weapon" style="display:none">
+    <label>武器種</label>
+    <select id="base" onchange="drawEnchants(); render()"></select>
+    <span class="hint" id="baseHint" style="flex:1"></span>
+  </div>
+  <div class="row only-weapon" style="display:none">
     <label>攻撃力</label>
     <input type="number" id="damage" value="7" min="1" max="10" step="0.5"
            oninput="render()">
@@ -436,26 +441,84 @@ const VANILLA_WEAPONS = [
 ];
 
 /**
+ * 武器の「型」。
+ *
+ * 🔴 <b>バニラのどの持ち物として振る舞うか</b>（人間の指示 2026-08-24）。
+ * <b>見た目は鎌、動きはハサミ、攻撃力は高く、火属性</b>――という作り方ができる。
+ *
+ * ⚠️ <b>★の付いた5つは専用の枠を取る。</b> あの5つだけは動きが持ち物の型で
+ * 決まっていて、部品では作れない。枠の数は型ごとに64個まで。
+ *
+ * 中身は [ID, 日本語, 何ができるか, 専用枠か]。
+ */
+const BASES = [
+  ["sword", "剣", "振ると横なぎが出る。クモの巣と竹が切れる", false],
+  ["axe", "斧", "木が速く切れる。盾を弾ける", false],
+  ["pickaxe", "ピッケル", "石と鉱石が掘れる", false],
+  ["shovel", "シャベル", "土・砂・雪が掘れる。土を道にできる", false],
+  ["hoe", "クワ", "畑が耕せる。葉が速く切れる", false],
+  ["spear", "やり", "突いて攻める。リーチが長い（26.2 の新顔）", false],
+  ["shield", "盾", "構えて受け止める。攻撃には向かない", false],
+  ["bow", "弓", "矢を撃つ", true],
+  ["crossbow", "クロスボウ", "矢をためて撃つ", true],
+  ["trident", "トライデント", "投げられる。水中で強い", true],
+  ["mace", "メイス", "高いところから落ちながら叩くと強い", true],
+  ["shears", "ハサミ", "羊が刈れる。葉・ツタ・羊毛が切れる", true]
+];
+
+/** 近づいて殴る型。⚠️ 盾・弓・クロスボウ以外。 */
+const B_MELEE =
+  ["sword", "axe", "pickaxe", "shovel", "hoe", "spear", "trident", "mace", "shears"];
+
+/** 落とし物が変わる掘り物の型。⚠️ ハサミは葉しか増えないので外してある。 */
+const B_DIG = ["pickaxe", "shovel", "axe", "hoe"];
+
+/** 矢を撃つ型。 */
+const B_SHOOT = ["bow", "crossbow"];
+
+/**
  * はじめから付けられるエンチャント。
  *
  * 🔴 <b>選択式で、どれもレベル1だけ</b>（人間の指示 2026-08-23）。
  *
- * ⚠️ <b>ここに無いものは「付けても効かない」もの。</b>
- * トライデント・メイス・弓・やりの固有エンチャント（チャネリング・高密度・
- * 忠誠・激流・突進・フレイム・パワーなど）は、<b>その持ち物の動き</b>
- * （投げる・叩きつける・撃つ）に結びついていて、うちの武器では何も起きない。
- * 26.2 のデータを読んで確かめた（2026-08-23）。
+ * 🔴 <b>武器種で変わる</b>（人間の指示 2026-08-24）。
+ * ⚠️ <b>バニラで付けられるかではなく、「付けて実際に効くか」で分けてある。</b>
+ * 26.2 のエンチャント定義を読んで、どこに効き目がぶら下がっているかを見た。
+ * だから<b>ハサミに火属性</b>のような、バニラでは作れない組み合わせも選べる。
  *
- * 中身は [ID, 日本語, どこに付くか]。
+ * 中身は [ID, 日本語, どこに付くか]。武器は<b>付く型の一覧</b>。
  */
 const ENCHANTS = [
-  ["minecraft:sharpness", "ダメージ増加", "weapon"],
-  ["minecraft:smite", "アンデッド特効", "weapon"],
-  ["minecraft:bane_of_arthropods", "虫特効", "weapon"],
-  ["minecraft:fire_aspect", "火属性", "weapon"],
-  ["minecraft:knockback", "ノックバック", "weapon"],
-  ["minecraft:looting", "ドロップ増加", "weapon"],
-  ["minecraft:sweeping_edge", "範囲ダメージ増加", "weapon"],
+  // ── 近づいて殴る（どの型でも殴れるので、まとめて付く） ──
+  ["minecraft:sharpness", "ダメージ増加", B_MELEE],
+  ["minecraft:smite", "アンデッド特効", B_MELEE],
+  ["minecraft:bane_of_arthropods", "虫特効", B_MELEE],
+  ["minecraft:impaling", "水生特効", B_MELEE],
+  ["minecraft:breach", "防具貫通", B_MELEE],
+  ["minecraft:fire_aspect", "火属性", B_MELEE],
+  ["minecraft:knockback", "ノックバック", B_MELEE],
+  ["minecraft:looting", "ドロップ増加", B_MELEE],
+  ["minecraft:sweeping_edge", "範囲ダメージ増加", B_MELEE],
+  // ── 掘る ──
+  ["minecraft:efficiency", "効率強化", B_MELEE],
+  ["minecraft:fortune", "幸運", B_DIG],
+  ["minecraft:silk_touch", "シルクタッチ", B_DIG],
+  // ── 撃つ ──
+  ["minecraft:power", "射撃ダメージ増加", B_SHOOT],
+  ["minecraft:punch", "パンチ", B_SHOOT],
+  ["minecraft:flame", "フレイム", B_SHOOT],
+  ["minecraft:infinity", "無限", B_SHOOT],
+  ["minecraft:piercing", "貫通", ["crossbow"]],
+  ["minecraft:multishot", "拡散", ["crossbow"]],
+  ["minecraft:quick_charge", "高速装填", ["crossbow"]],
+  // ── その型でしか効かないもの ──
+  ["minecraft:loyalty", "忠誠", ["trident"]],
+  ["minecraft:riptide", "激流", ["trident"]],
+  ["minecraft:channeling", "チャネリング", ["trident"]],
+  ["minecraft:density", "高密度", ["mace"]],
+  ["minecraft:wind_burst", "風の軌跡", ["mace"]],
+  ["minecraft:lunge", "突進", ["spear"]],
+  // ── 防具 ──
   ["minecraft:protection", "ダメージ軽減", "armor"],
   ["minecraft:fire_protection", "火炎耐性", "armor"],
   ["minecraft:blast_protection", "爆発耐性", "armor"],
@@ -468,6 +531,7 @@ const ENCHANTS = [
   ["minecraft:depth_strider", "水中歩行", "feet"],
   ["minecraft:frost_walker", "氷渡り", "feet"],
   ["minecraft:soul_speed", "ソウルスピード", "feet"],
+  // ── どちらにも ──
   ["minecraft:unbreaking", "耐久力", "both"],
   ["minecraft:mending", "修繕", "both"]
 ];
@@ -476,12 +540,18 @@ const ENCHANTS = [
  * 同時に付けられない組。
  *
  * ⚠️ <b>バニラの決まり。</b> 付けても片方しか効かないので、その場で伝える。
+ * 🔴 <b>26.2 の {@code exclusive_set} をそのまま写した</b>（2026-08-24 に読んだ）。
  */
 const ENCHANT_CLASH = [
-  ["minecraft:sharpness", "minecraft:smite", "minecraft:bane_of_arthropods"],
+  ["minecraft:sharpness", "minecraft:smite", "minecraft:bane_of_arthropods",
+   "minecraft:impaling", "minecraft:density", "minecraft:breach"],
   ["minecraft:protection", "minecraft:fire_protection",
    "minecraft:blast_protection", "minecraft:projectile_protection"],
-  ["minecraft:depth_strider", "minecraft:frost_walker"]
+  ["minecraft:depth_strider", "minecraft:frost_walker"],
+  ["minecraft:fortune", "minecraft:silk_touch"],
+  ["minecraft:infinity", "minecraft:mending"],
+  ["minecraft:multishot", "minecraft:piercing"],
+  ["minecraft:riptide", "minecraft:loyalty", "minecraft:channeling"]
 ];
 
 /** 🔴 武器そのものの DPS の上限。ネザライトの剣と同じ。 */
@@ -1206,6 +1276,7 @@ function setMode(m) {
   drawDepthRow();
 
   drawViewFaces();
+  fillBases();
   drawEnchants();
   if (flat) { fillBackIfEmpty(); }
   drawMaterials();
@@ -2350,6 +2421,8 @@ function goods() {
       if (g.sit) { g.sitHeight = Number(val("sitHeight")) || 0.5; }
     }
   } else if (mode === "weapon") {
+    // 🔴 バニラのどの持ち物として振る舞うか（人間の指示 2026-08-24）
+    g.base = baseId();
     // 🔴 攻撃力と速さは「合計」。素手は 攻撃力1・速さ4
     g.damage = weaponDamage();
     g.swing = Number(val("swing")) || 4;
@@ -2831,13 +2904,42 @@ function copyJson() {
 /** いま選ばれているエンチャント。 */
 let picked = [];
 
-/** その品目で選べるものか。 */
+/**
+ * その品目・その武器種で選べるものか。
+ *
+ * 🔴 <b>武器は型ごとに変わる</b>（人間の指示 2026-08-24）。
+ * ⚠️ <b>耐久力と修繕はどこにでも付く。</b>
+ */
 function enchantFits(where) {
   if (where === "both") { return true; }
-  if (mode === "weapon") { return where === "weapon"; }
+  if (mode === "weapon") {
+    return Array.isArray(where) && where.includes(baseId());
+  }
   if (mode !== "armor") { return false; }
   if (where === "armor") { return true; }
   return where === val("armorWear");
+}
+
+/** いま選ばれている武器種。⚠️ 何も無ければ剣。 */
+function baseId() {
+  return val("base") || "sword";
+}
+
+/** その武器種。⚠️ 知らない名前なら剣。 */
+function baseOf(id) {
+  return BASES.find(b => b[0] === id) || BASES[0];
+}
+
+/** 武器種の選び口を埋める。⚠️ 一度だけ。 */
+function fillBases() {
+  const sel = document.getElementById("base");
+  if (!sel || sel.options.length) { return; }
+  BASES.forEach(([id, name, , pool]) => {
+    const o = document.createElement("option");
+    o.value = id;
+    o.textContent = name + (pool ? " ★" : "");
+    sel.appendChild(o);
+  });
 }
 
 /**
@@ -2893,9 +2995,12 @@ function drawEnchants() {
     note.innerHTML = "⚠️ <b>どれもレベル1で付きます。</b>"
         + "強くするときは<b>金床でエンチャント本を足してください</b>。<br>"
         + "🔴 <b>エンチャントが付いているものはエンチャント台に入りません</b>（バニラの決まり）。";
-  } else {
+  } else if (mode === "weapon") {
     note.innerHTML = "⚠️ <b>付けなくても構いません。</b>"
-        + "トライデントやメイスの固有エンチャントは、うちの武器では効かないので出していません。";
+        + "ここに出ているのは<b>「" + baseOf(baseId())[1]
+        + "」で実際に効くもの</b>だけです。武器種を変えると中身も変わります。";
+  } else {
+    note.innerHTML = "⚠️ <b>付けなくても構いません。</b>";
   }
   box.appendChild(note);
 }
@@ -2915,21 +3020,62 @@ function weaponDamage() {
  */
 function gearHint() {
   const dps = weaponDamage() * Math.max(0.1, Number(val("swing")) || 4);
-  let base = "木の剣ぶん（板材2＋棒1）";
-  if (dps > 11.2) { base = "ネザライトの剣ぶん（ネザライトインゴット1＋ダイヤ2＋棒1）"; }
-  else if (dps > 9.6) { base = "ダイヤの剣ぶん（ダイヤ2＋棒1）"; }
-  else if (dps > 8.0) { base = "鉄の剣ぶん（鉄2＋棒1）"; }
-  else if (dps > 6.4) { base = "石の剣ぶん（石2＋棒1）"; }
+  let base = costOf(baseId(), dps);
   // ⚠️ はじめから付けるエンチャント1つにつき、その本を1冊
   const books = picked.map(id =>
       (ENCHANTS.find(x => x[0] === id) || [0, id])[1] + "の本");
   return base + (books.length ? "　＋　" + books.join("　＋　") + " 各1冊" : "");
 }
 
+/** 作るのに要らない型（バニラの作り方が決まっている）。 */
+const BASE_COST = {
+  bow: "弓ぶん（棒3＋糸3）",
+  crossbow: "クロスボウぶん（棒3＋鉄1＋糸2＋トリップワイヤーフック1）",
+  trident: "トライデントぶん（⚠️ バニラでは作れない。ドラウンドが落とす）",
+  mace: "メイスぶん（ブリーズロッド1＋重量ブロック1）",
+  shears: "ハサミぶん（鉄2）",
+  shield: "盾ぶん（板材6＋鉄1）"
+};
+
+/** 型ごとの作り方のかたち。⚠️ 26.2 のレシピから取った。 */
+const BASE_SHAPE = {
+  sword: "素材2＋棒1",
+  axe: "素材3＋棒2",
+  pickaxe: "素材3＋棒2",
+  shovel: "素材1＋棒2",
+  hoe: "素材2＋棒2",
+  spear: "素材1＋棒2"
+};
+
+/**
+ * 素材の目安。
+ *
+ * 🔴 <b>強さが同じくらいのバニラの持ち物に合わせる</b>（人間の判断 2026-08-23）。
+ * ⚠️ <b>作り方が決まっている型は、その作り方のぶん。</b>
+ */
+function costOf(id, dps) {
+  if (BASE_COST[id]) { return BASE_COST[id]; }
+  const shape = BASE_SHAPE[id] || "素材2＋棒1";
+  const name = baseOf(id)[1];
+  let tier = "木";
+  if (dps > 11.2) { tier = "ネザライト"; }
+  else if (dps > 9.6) { tier = "ダイヤ"; }
+  else if (dps > 8.0) { tier = "鉄"; }
+  else if (dps > 6.4) { tier = "石"; }
+  // ⚠️ ネザライトは作れない。ダイヤのものを鍛冶台で上げる
+  if (tier === "ネザライト") {
+    return "ネザライトの" + name + "ぶん（" + shape.replace("素材", "ダイヤ")
+        + "　＋　ネザライトインゴット1＋鍛冶型）";
+  }
+  return tier + "の" + name + "ぶん（"
+      + shape.replace("素材", tier === "木" ? "板材" : tier) + "）";
+}
+
 /** 強さの欄を描く。⚠️ 上限を超えていたら、そのことをはっきり出す。 */
 function showDps() {
   const box = document.getElementById("dps");
   if (!box || mode !== "weapon") { return; }
+  showBaseHint();
   const swing = Math.max(0.1, Number(val("swing")) || 4);
   const asked = Math.max(1, Number(val("damage")) || 1);
   const hit = weaponDamage();
@@ -2953,6 +3099,31 @@ function showDps() {
         + (near[1] * near[2]).toFixed(2) + "）くらい</span>";
   }
   html += "<br><span class='muted'>素材の目安：" + gearHint() + "</span>";
+  box.innerHTML = html;
+}
+
+/**
+ * 選んだ武器種の説明。
+ *
+ * ⚠️ <b>専用枠を取る型は、そのことを出す。</b> 枠は型ごとに64個までしかない。
+ */
+function showBaseHint() {
+  const box = document.getElementById("baseHint");
+  if (!box) { return; }
+  const b = baseOf(baseId());
+  let html = "<b>" + b[2] + "</b>";
+  if (b[3]) {
+    html += "<br>⚠️ <b>この型は専用の枠を取ります</b>（型ごとに64個まで）。"
+        + "動きが持ち物そのものに焼き付いているので、ほかの型では作れません。";
+  }
+  if (b[0] === "bow" || b[0] === "crossbow" || b[0] === "shield") {
+    html += "<br>⚠️ <b>攻撃力と速さは殴ったときの数です。</b>"
+        + "撃つ強さ・受ける強さはここでは変えられません。";
+  }
+  if (b[0] === "spear") {
+    html += "<br>⚠️ <b>「突進」は 26.2 の新しいエンチャントです。</b>"
+        + "手元で一度試してから配ってください。";
+  }
   box.innerHTML = html;
 }
 
@@ -3150,6 +3321,10 @@ function fromGoods(g) {
   if (cat === "hata") {
     // ⚠️ 旗は硬さも空腹も持たない。読み戻すものが無い
   } else if (cat === "weapon") {
+    fillBases();
+    // ⚠️ 昔の定義には型が無い。そのときは剣として読む
+    document.getElementById("base").value =
+        BASES.some(b => b[0] === g.base) ? g.base : "sword";
     document.getElementById("damage").value = g.damage || 1;
     document.getElementById("swing").value = g.swing || 4;
     document.getElementById("durability").value = g.durability || 0;
