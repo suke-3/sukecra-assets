@@ -81,6 +81,7 @@
   <button id="m-food" class="on" onclick="setMode('food')">🍜 料理</button>
   <button id="m-block" onclick="setMode('block')">🧱 建材</button>
   <button id="m-furniture" onclick="setMode('furniture')">🪑 家具</button>
+  <button id="m-clothes" onclick="setMode('clothes')">👕 洋服</button>
   <button id="m-hata" onclick="setMode('hata')">🚩 旗</button>
   <button id="m-material" onclick="setMode('material')" style="display:none">🧂 中間素材</button>
   <button id="newBtn" onclick="newDish()">新しい料理</button>
@@ -253,6 +254,21 @@
       ⚠️ 家具は指定しなくても必ず通します
     </span>
   </div>
+  <div class="row only-clothes" style="display:none">
+    <label>着るところ</label>
+    <select id="wear" onchange="render()">
+      <option value="head">頭</option>
+      <option value="chest">胴</option>
+      <option value="legs">脚</option>
+      <option value="feet">足</option>
+    </select>
+    <label style="min-width:64px">重ね順</label>
+    <input type="number" id="layer" value="1" min="0" max="99" oninput="render()">
+    <span class="hint">
+      🔴 <b>小さいほど下</b>。Tシャツを1、上着を2、といった具合。
+      ⚠️ <b>同時に着られるのは 頭2・胴4・脚2・足2 枚まで</b>
+    </span>
+  </div>
   <div class="row only-furniture" style="display:none">
     <label>座れる</label>
     <input type="checkbox" id="sit" onchange="render()">
@@ -339,10 +355,20 @@ const CELL = 24;
  */
 const HATA_W = 20;
 const HATA_H = 40;
-const gw = () => (mode === "hata") ? HATA_W : N;
-const gh = () => (mode === "hata") ? HATA_H : N;
-/** マスの大きさ。⚠️ 旗は縦に長いので小さめにしないと画面に入らない。 */
-const cell = () => (mode === "hata") ? 13 : CELL;
+/**
+ * 洋服の絵。
+ *
+ * 🔴 <b>スキンとまったく同じ形の 64×64</b>（2026-08-23 に実装を確認）。
+ * 服は<b>プレイヤーの体をもう一度その絵で描く</b>作りなので、
+ * <b>並びがスキンと同じでないと、体のあちこちに散らばって出る</b>。
+ *
+ * ⚠️ <b>防具の 64×32 ではない。</b> あちらは防具の描き方で、こちらは体そのもの。
+ */
+const SKIN = 64;
+const gw = () => (mode === "hata") ? HATA_W : (mode === "clothes") ? SKIN : N;
+const gh = () => (mode === "hata") ? HATA_H : (mode === "clothes") ? SKIN : N;
+/** マスの大きさ。⚠️ 旗は縦長、洋服は広いので小さめにしないと画面に入らない。 */
+const cell = () => (mode === "hata") ? 13 : (mode === "clothes") ? 8 : CELL;
 /**
  * どの面を描いているか。
  *
@@ -360,8 +386,49 @@ const SIDE_SET = {
               ["up","上"], ["down","下"]],
   // 🔴 旗は1面だけ。裏は自動で鏡写しにする（本物の旗と同じ）
   // ⚠️ 名前を front にしない。料理の絵と同じ入れものになって、広さが食い違う
-  hata: [["flag","旗"]]
+  hata: [["flag","旗"]],
+  // 🔴 洋服は1枚。スキンと同じ並びで、体ぜんぶがこの1枚に入っている
+  clothes: [["skin","服"]]
 };
+
+/**
+ * スキンの中で、どこが体のどこか。
+ *
+ * 🔴 <b>ここを間違えると、袖が足に出るような絵になる。</b>
+ * 中身は [左, 上, 幅, 高さ, 呼び名]。
+ */
+const SKIN_PARTS = [
+  [0, 0, 32, 16, "頭"],        [32, 0, 32, 16, "頭（外）"],
+  [16, 16, 24, 16, "胴"],      [16, 32, 24, 16, "胴（外）"],
+  [40, 16, 16, 16, "右腕"],    [40, 32, 16, 16, "右腕（外）"],
+  [32, 48, 16, 16, "左腕"],    [48, 48, 16, 16, "左腕（外）"],
+  [0, 16, 16, 16, "右脚"],     [0, 32, 16, 16, "右脚（外）"],
+  [16, 48, 16, 16, "左脚"],    [0, 48, 16, 16, "左脚（外）"]
+];
+
+/**
+ * 前から見たときに出るところ。
+ *
+ * ⚠️ <b>着せ替え人形を描くのに使う。</b> 中身は [左, 上, 幅, 高さ, 置く左, 置く上]。
+ */
+const DOLL_FRONT = [
+  [8, 8, 8, 8, 4, 0], [40, 8, 8, 8, 4, 0],          // 頭（内・外）
+  [20, 20, 8, 12, 4, 8], [20, 36, 8, 12, 4, 8],     // 胴
+  [44, 20, 4, 12, 0, 8], [44, 36, 4, 12, 0, 8],     // 右腕
+  [36, 52, 4, 12, 12, 8], [52, 52, 4, 12, 12, 8],   // 左腕
+  [4, 20, 4, 12, 4, 20], [4, 36, 4, 12, 4, 20],     // 右脚
+  [20, 52, 4, 12, 8, 20], [4, 52, 4, 12, 8, 20]     // 左脚
+];
+
+/** 後ろから見たときに出るところ。⚠️ 左右が入れ替わる。 */
+const DOLL_BACK = [
+  [24, 8, 8, 8, 4, 0], [56, 8, 8, 8, 4, 0],
+  [32, 20, 8, 12, 4, 8], [32, 36, 8, 12, 4, 8],
+  [52, 20, 4, 12, 12, 8], [52, 36, 4, 12, 12, 8],
+  [44, 52, 4, 12, 0, 8], [60, 52, 4, 12, 0, 8],
+  [12, 20, 4, 12, 8, 20], [12, 36, 4, 12, 8, 20],
+  [28, 52, 4, 12, 4, 20], [12, 52, 4, 12, 4, 20]
+];
 
 /**
  * 家具の中身。
@@ -395,16 +462,17 @@ let mode = "food";
  * ⚠️ 中間素材は枠を使わないが、書き出しの形をそろえるために入れてある。
  */
 const CATEGORY = { food: "food", block: "block", furniture: "furniture",
-                  material: "food", hata: "hata" };
+                  material: "food", hata: "hata", clothes: "clothes" };
 
 /** 品目 → タブ。⚠️ 読み込みのときに使う。 */
-const MODE_OF = { food: "food", block: "block", furniture: "furniture", hata: "hata" };
+const MODE_OF = { food: "food", block: "block", furniture: "furniture",
+                  hata: "hata", clothes: "clothes" };
 
 /** 置けるもの。⚠️ サーバーの categories.json の block と揃えること。 */
 const PLACEABLE = ["block", "furniture"];
 
 const WORD = { food: "料理", block: "建材", furniture: "家具",
-               material: "中間素材", hata: "旗" };
+               material: "中間素材", hata: "旗", clothes: "洋服" };
 const word = () => WORD[mode];
 
 /**
@@ -746,8 +814,8 @@ function drawSideRow() {
     b.onclick = () => setSide(key);
     row.appendChild(b);
   });
-  // ⚠️ 旗は1面しかない。6面へ写す意味がない
-  if (!twoSided() && mode !== "hata") {
+  // ⚠️ 旗と洋服は1枚しかない。6面へ写す意味がない
+  if (!twoSided() && mode !== "hata" && mode !== "clothes") {
     const all = document.createElement("button");
     all.className = "small";
     all.textContent = "この絵を6面すべてに";
@@ -805,6 +873,7 @@ function setMode(m) {
   document.getElementById("m-furniture").classList.toggle("on", m === "furniture");
   document.getElementById("m-material").classList.toggle("on", m === "material");
   document.getElementById("m-hata").classList.toggle("on", m === "hata");
+  document.getElementById("m-clothes").classList.toggle("on", m === "clothes");
   const solid = (m === "block" || m === "furniture");
   // ⚠️ 中間素材は料理と同じ扱い。食べられなくてよいので、効果の欄は出さない
   const flat = (m === "food" || m === "material");
@@ -827,17 +896,21 @@ function setMode(m) {
     e => e.style.display = solid ? "" : "none");
   document.querySelectorAll(".only-furniture").forEach(
     e => e.style.display = (m === "furniture") ? "" : "none");
+  document.querySelectorAll(".only-clothes").forEach(
+    e => e.style.display = (m === "clothes") ? "" : "none");
   // ⚠️ 中間素材は料理人のもの。建築家にすると誰も作れなくなる
   // 🔴 旗は呉服屋のもの。ほかの職業にすると誰も作れなくなる
   document.getElementById("job").value =
-      (m === "hata") ? "tailor" : (flat ? "cook" : "builder");
+      (m === "hata" || m === "clothes") ? "tailor" : (flat ? "cook" : "builder");
   // ⚠️ 呼び名をそろえる。いまどれを作っているかが文字で分かるように
   // ⚠️ 広さはタブで変わる。見出しに出さないと「なぜ縦長なのか」が分からない
   document.getElementById("artTitle").textContent =
       "絵（" + gw() + "×" + gh() + "）";
   // ⚠️ 旗は回しても変わらない。押せると「壊れている」と思われる
   const spinBtn = document.getElementById("spin");
-  if (spinBtn) { spinBtn.style.display = (m === "hata") ? "none" : ""; }
+  if (spinBtn) {
+    spinBtn.style.display = (m === "hata" || m === "clothes") ? "none" : "";
+  }
   document.getElementById("newBtn").textContent = "新しい" + word();
   document.getElementById("useWord").textContent = word();
   document.getElementById("cardTitle").textContent = word();
@@ -1031,6 +1104,16 @@ function drawPaint() {
       }
     }
   }
+  // 🔴 スキンの並びは覚えられない。どこが体のどこかを絵の上に出す
+  if (mode === "clothes") {
+    SKIN_PARTS.forEach(([x, y, w, h, name]) => {
+      pctx.strokeStyle = "#ffcc4488"; pctx.lineWidth = 1.5;
+      pctx.strokeRect(x*C, y*C, w*C, h*C);
+      pctx.fillStyle = "#ffcc44cc";
+      pctx.font = "10px sans-serif";
+      pctx.fillText(name, x*C + 3, y*C + 11);
+    });
+  }
   pctx.strokeStyle = "#8884"; pctx.lineWidth = 1;
   for (let i=0;i<=gw();i++) {
     pctx.beginPath(); pctx.moveTo(i*C,0); pctx.lineTo(i*C,gh()*C); pctx.stroke();
@@ -1078,6 +1161,17 @@ function drawViewFaces() {
   if (!box) { return; }
   box.innerHTML = "";
   if (mode === "furniture") { return; }   // ⚠️ 家具は面が無いので出さない
+  // 🔴 洋服は「どちらから見るか」だけ。面を選ばせるものではない
+  if (mode === "clothes") {
+    [["前", false], ["後ろ", true]].forEach(([label, back]) => {
+      const b = document.createElement("button");
+      b.className = "small" + (dollBack === back ? " on" : "");
+      b.textContent = label;
+      b.onclick = () => { dollBack = back; drawViewFaces(); };
+      box.appendChild(b);
+    });
+    return;
+  }
   faces().forEach(([key, label]) => {
     const b = document.createElement("button");
     b.className = "small";
@@ -1224,6 +1318,40 @@ function cubePolys(cx, cy, scale) {
  * ⚠️ <b>揺れは出さない。</b> ゲームの中では揺れるが、描くときに揺れていると
  * <b>どのマスを塗ったのか分からなくなる</b>。まっすぐ出す。
  */
+/**
+ * 着せ替え人形。
+ *
+ * 🔴 <b>スキンの並びのままでは、どう見えるか分からない。</b>
+ * 前と後ろに組み立てて出す。
+ *
+ * ⚠️ <b>塗っていないところは素肌が出る。</b> 灰色の人形で表す。
+ */
+function drawDoll() {
+  const g = sides.skin;
+  const cuts = (dollBack ? DOLL_BACK : DOLL_FRONT);
+  const C = Math.min((solid.width - 40) / 16, (solid.height - 40) / 32);
+  const x0 = (solid.width - 16*C) / 2;
+  const y0 = 16;
+  // 素肌（下じき）
+  sctx.fillStyle = "#4a4a52";
+  [[4,0,8,8], [4,8,8,12], [0,8,4,12], [12,8,4,12], [4,20,4,12], [8,20,4,12]]
+      .forEach(r => sctx.fillRect(x0 + r[0]*C, y0 + r[1]*C, r[2]*C, r[3]*C));
+  // 服
+  cuts.forEach(c => {
+    for (let y = 0; y < c[3]; y++) {
+      for (let x = 0; x < c[2]; x++) {
+        const col = g[c[1]+y][c[0]+x];
+        if (!col) { continue; }
+        sctx.fillStyle = col;
+        sctx.fillRect(x0 + (c[4]+x)*C, y0 + (c[5]+y)*C, C + 0.5, C + 0.5);
+      }
+    }
+  });
+}
+
+/** 人形を後ろから見るか。 */
+let dollBack = false;
+
 function drawHata() {
   const g = sides.flag;
   const C = Math.min((solid.width - 40) / HATA_W, (solid.height - 50) / HATA_H);
@@ -1258,6 +1386,10 @@ function draw3D() {
   }
   if (mode === "hata") {
     drawHata();
+    return;
+  }
+  if (mode === "clothes") {
+    drawDoll();
     return;
   }
 
@@ -1725,6 +1857,12 @@ function goods() {
     //    ⚠️ 硬さも音も明るさも要らない（ブロックにならないため）
     return g;
   }
+  if (mode === "clothes") {
+    // 🔴 着るところと重ね順。⚠️ これが無いと胴の扱いになる
+    g.wear = val("wear");
+    g.layer = Number(val("layer")) || 0;
+    return g;
+  }
   if (!twoSided()) {
     g.hardness = Number(val("hardness")) || 1.5;
     g.sound = val("sound");
@@ -2090,6 +2228,11 @@ function render() {
     ? "🔴 <b>前を描けば、後・右・左はついてきます。</b>上と下は<b>縁の色</b>で塞ぎます。<br>" +
       "⚠️ 面を自分で描くと、その面は自動をやめます。「自動に戻す」で戻せます。<br>" +
       "⚠️ <b>空けたところは空いたまま出ます。</b>隙間のある建材も作れます。"
+    : (mode === "clothes")
+    ? "🔴 <b>並びはスキンと同じ 64×64 です。</b>頭・胴・腕・脚がこの1枚に入っています。<br>" +
+      "⚠️ <b>塗っていないところは素肌や防具が透けます。</b>着たいところだけ塗ってください。<br>" +
+      "⚠️ <b>「濃さ」を下げると、うっすら透ける服になります。</b><br>" +
+      "🔴 <b>防御力はありません。</b>見た目だけで、防具の上から重なります。"
     : (mode === "hata")
     ? "🔴 <b>できあがるのは本物の旗です。</b>揺れますし、盾にも付けられます。<br>" +
       "⚠️ <b>絵の広さは 20×40。</b>旗の面の大きさに合わせてあります。<br>" +
@@ -2156,6 +2299,50 @@ function copyJson() {
  *
  * ⚠️ <b>塗っていないところは透明のまま。</b> そこは旗の地（白）が出る。
  */
+/**
+ * 持ち物の中で見える小さい絵（16×16）。
+ *
+ * 🔴 <b>着たときの絵から切り出す。</b> 2枚描かせると手間が2倍になるうえ、
+ * <b>持ち物の絵と着たときの絵が食い違う</b>という分かりにくい事故が起きる。
+ *
+ * ⚠️ <b>外側の層があればそちらを使う。</b> 上着のように外側だけ描く服がある。
+ */
+function iconGrid() {
+  const g = sides.skin;
+  // 着るところ → 前から見て代表になるところ [内側, 外側]
+  const CUT = {
+    head:  [[8, 8, 8, 8], [40, 8, 8, 8]],
+    chest: [[20, 20, 8, 12], [20, 36, 8, 12]],
+    legs:  [[4, 20, 4, 12], [4, 36, 4, 12]],
+    feet:  [[4, 26, 4, 6], [4, 42, 4, 6]]
+  };
+  const pair = CUT[val("wear")] || CUT.chest;
+  // ⚠️ 何か描いてあるほうを選ぶ。両方あれば外側（上に見えるほう）
+  const used = a => {
+    for (let y = 0; y < a[3]; y++) {
+      for (let x = 0; x < a[2]; x++) { if (g[a[1]+y][a[0]+x]) { return true; } }
+    }
+    return false;
+  };
+  const cut = used(pair[1]) ? pair[1] : pair[0];
+
+  const out = Array.from({length:N}, () => Array(N).fill(null));
+  // 16×16 の真ん中へ、はみ出さない大きさで置く
+  const k = Math.max(1, Math.floor(Math.min(N / cut[2], N / cut[3])));
+  const ox = Math.floor((N - cut[2]*k) / 2);
+  const oy = Math.floor((N - cut[3]*k) / 2);
+  for (let y = 0; y < cut[3]; y++) {
+    for (let x = 0; x < cut[2]; x++) {
+      const c = g[cut[1]+y][cut[0]+x];
+      if (!c) { continue; }
+      for (let b = 0; b < k; b++) {
+        for (let a = 0; a < k; a++) { out[oy + y*k + b][ox + x*k + a] = c; }
+      }
+    }
+  }
+  return out;
+}
+
 function hataBlob(cb) {
   const c = document.createElement("canvas");
   c.width = 64; c.height = 64;
@@ -2200,7 +2387,16 @@ function saveAll() {
   }
   download(id + ".json", JSON.stringify(goods(), null, 2));
   // ⚠️ 旗は見た目の指定を持たない。バニラの旗そのものになる
-  if (mode !== "hata") {
+  if (mode === "clothes") {
+    // ⚠️ 持ち物の中では小さい絵を使う。着たときの絵とは別
+    download(id + ".model.json", JSON.stringify({
+      parent: "minecraft:item/generated",
+      textures: { layer0: "sukecra:item/" + id }
+    }, null, 2));
+    download(id + ".item.json", JSON.stringify({
+      model: { type:"minecraft:model", model: "sukecra:item/" + id }
+    }, null, 2));
+  } else if (mode !== "hata") {
     download(id + ".model.json", JSON.stringify(model(), null, 2));
     download(id + ".item.json", JSON.stringify({
       model: { type:"minecraft:model",
@@ -2210,6 +2406,11 @@ function saveAll() {
   if (mode === "hata") {
     // 🔴 旗の絵は 64×64。前と後ろの2か所へ同じ絵を置く（後ろは鏡写し）
     hataBlob(b => download(id + ".png", b));
+  } else if (mode === "clothes") {
+    // 🔴 着たときの絵（スキンと同じ 64×64）
+    pngBlob(sides.skin, b => download(id + ".png", b));
+    // 🔴 持ち物の中で見える小さい絵。⚠️ 服の絵から切り出して作る
+    pngBlob(iconGrid(), b => download(id + "_icon.png", b));
   } else if (mode === "furniture") {
     // 🔴 家具は「色を並べただけの絵」を1枚。面ごとの絵は要らない
     pngBlob(paletteGrid(), b => download(id + ".png", b));
@@ -2284,6 +2485,9 @@ function fromGoods(g) {
   setMode(MODE_OF[cat] || "food");
   if (cat === "hata") {
     // ⚠️ 旗は硬さも空腹も持たない。読み戻すものが無い
+  } else if (cat === "clothes") {
+    document.getElementById("wear").value = g.wear || "chest";
+    document.getElementById("layer").value = g.layer || 0;
   } else if (PLACEABLE.includes(cat)) {
     document.getElementById("hardness").value = g.hardness || 1.5;
     document.getElementById("sound").value = g.sound || "stone";
