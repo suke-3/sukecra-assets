@@ -169,6 +169,8 @@
       <button class="small" id="viewHand" onclick="setView('hand')">斜め</button>
       <span id="viewFaces"></span>
       <button id="spin" class="small on" onclick="toggleSpin()">回す</button>
+      <button id="tpose" class="small" style="display:none"
+              onclick="toggleTPose()">Tポーズ</button>
     </div>
     <p class="hint" id="dragHint">ドラッグで好きな向きに回せます。動かすと自動で回るのが止まります。</p>
     <p class="hint bad" id="overflow"></p>
@@ -1053,6 +1055,9 @@ function setMode(m) {
     const e = document.getElementById(k);
     if (e) { e.style.display = flat2d ? "none" : ""; }
   });
+  // 🔴 腕を伸ばすのは人の形のときだけ
+  const tb = document.getElementById("tpose");
+  if (tb) { tb.style.display = isSkin() ? "" : "none"; }
   // 🔴 スキンは品物ではない。名前も材料も要らない
   ["cardGoods", "cardRecipe", "cardOut"].forEach(k => {
     const e = document.getElementById(k);
@@ -1483,6 +1488,51 @@ function cubePolys(cx, cy, scale) {
  * <b>どのマスを塗ったのか分からなくなる</b>。まっすぐ出す。
  */
 /**
+ * Tポーズにするか。
+ *
+ * 🔴 <b>腕の内側（体に当たる側）は、下ろしたままでは見えない</b>
+ * （人間の指示 2026-08-23）。横に伸ばすと確かめられる。
+ */
+let tPose = false;
+
+function toggleTPose() {
+  tPose = !tPose;
+  const b = document.getElementById("tpose");
+  if (b) { b.classList.toggle("on", tPose); }
+}
+
+/**
+ * 腕を横へ伸ばす。
+ *
+ * ⚠️ <b>肩を軸にして 90 度回す。</b> 置き直すのではなく回すので、
+ * <b>絵の貼り方はそのままでよい</b>――どの面がどこかを考え直さずに済む。
+ *
+ * @return 回す中心と角度。回さないなら null
+ */
+function armTurn(key) {
+  if (!tPose) { return null; }
+  // ⚠️ 軸は肩。y は下向きなので、右腕は +90 度で -x のほうへ伸びる
+  if (key === "arm_r") { return { px: -4, py: 12, a: Math.PI / 2 }; }
+  if (key === "arm_l") { return { px: 4, py: 12, a: -Math.PI / 2 }; }
+  return null;
+}
+
+/** その点を、腕の向きに合わせて回す。 */
+function armPoint(t, x, y, z) {
+  if (!t) { return [x, y, z]; }
+  const c = Math.cos(t.a), s = Math.sin(t.a);
+  const dx = x - t.px, dy = y - t.py;
+  return [t.px + dx * c - dy * s, t.py + dx * s + dy * c, z];
+}
+
+/** その向きを、腕の向きに合わせて回す。⚠️ 中心はずらさない。 */
+function armDir(t, n) {
+  if (!t) { return n; }
+  const c = Math.cos(t.a), s = Math.sin(t.a);
+  return [n[0] * c - n[1] * s, n[0] * s + n[1] * c, n[2]];
+}
+
+/**
  * 人の立体。
  *
  * 🔴 <b>横も上下も確かめられるようにする</b>（人間の指示 2026-08-23）。
@@ -1514,9 +1564,10 @@ function bodyPolys(cx, cy, scale) {
       const b = { x: box.x - grow, y: box.y - grow, z: box.z - grow,
                   w: box.w + grow*2, h: box.h + grow*2, d: box.d + grow*2 };
 
+      const turn = armTurn(key);
       BODY_FACES.forEach(f => {
         // 外を向いている面だけ描く。⚠️ 向こう向きは手前に隠れる
-        if (rot(f.n)[2] >= 0) { return; }
+        if (rot(armDir(turn, f.n))[2] >= 0) { return; }
         const [ux, uy, fw, fh] = f.uv(p.w, p.h, p.d);
         const { o, u, v } = f.at(b);
         for (let j = 0; j < fh; j++) {
@@ -1534,11 +1585,12 @@ function bodyPolys(cx, cy, scale) {
                          + Math.abs(u[2]) * b.d;
               const lenV = Math.abs(v[0]) * b.w + Math.abs(v[1]) * b.h
                          + Math.abs(v[2]) * b.d;
-              const q = rot([
-                o[0] + u[0]*uu*lenU + v[0]*vv*lenV,
-                o[1] + u[1]*uu*lenU + v[1]*vv*lenV - MID,
-                o[2] + u[2]*uu*lenU + v[2]*vv*lenV
-              ]);
+              // ⚠️ 先に腕を回してから、まん中を引いて、全体を回す
+              const t = armPoint(turn,
+                  o[0] + u[0]*uu*lenU + v[0]*vv*lenV,
+                  o[1] + u[1]*uu*lenU + v[1]*vv*lenV,
+                  o[2] + u[2]*uu*lenU + v[2]*vv*lenV);
+              const q = rot([t[0], t[1] - MID, t[2]]);
               return [cx + q[0]*scale, cy + q[1]*scale, q[2]];
             });
             polys.push({
@@ -2460,14 +2512,16 @@ function render() {
       "⚠️ <b>「一式を保存」で skin.png が出ます。</b>Minecraft の設定から入れてください。<br>" +
       "⚠️ <b>プレビューの暗いところは、まだ塗っていないところです。</b><br>" +
       "⚠️ <b>目印の色は向きです。</b>青＝前、紫＝後、緑＝右、橙＝左、黄＝上、赤＝下。<br>" +
-      "⚠️ <b>右のプレビューはドラッグで回せます。</b>横も上下も確かめられます。"
+      "⚠️ <b>右のプレビューはドラッグで回せます。</b>横も上下も確かめられます。<br>" +
+      "⚠️ <b>「Tポーズ」で腕を横に伸ばせます。</b>腕の内側（体に当たる側）はこれで確かめてください。"
     : (mode === "clothes")
     ? "🔴 <b>並びはスキンと同じ 64×64 です。</b>頭・胴・腕・脚がこの1枚に入っています。<br>" +
       "⚠️ <b>塗っていないところは素肌や防具が透けます。</b>着たいところだけ塗ってください。<br>" +
       "⚠️ <b>「濃さ」を下げると、うっすら透ける服になります。</b><br>" +
       "🔴 <b>防御力はありません。</b>見た目だけで、防具の上から重なります。<br>" +
       "⚠️ <b>目印の色は向きです。</b>青＝前、紫＝後、緑＝右、橙＝左、黄＝上、赤＝下。<br>" +
-      "⚠️ <b>右のプレビューはドラッグで回せます。</b>横も上下も確かめられます。"
+      "⚠️ <b>右のプレビューはドラッグで回せます。</b>横も上下も確かめられます。<br>" +
+      "⚠️ <b>「Tポーズ」で腕を横に伸ばせます。</b>腕の内側（体に当たる側）はこれで確かめてください。"
     : (mode === "hata")
     ? "🔴 <b>できあがるのは本物の旗です。</b>揺れますし、盾にも付けられます。<br>" +
       "⚠️ <b>絵の広さは 20×40。</b>旗の面の大きさに合わせてあります。<br>" +
