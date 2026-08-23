@@ -83,6 +83,7 @@
   <button id="m-furniture" onclick="setMode('furniture')">🪑 家具</button>
   <button id="m-clothes" onclick="setMode('clothes')">👕 洋服</button>
   <button id="m-hata" onclick="setMode('hata')">🚩 旗</button>
+  <button id="m-skin" onclick="setMode('skin')">🧍 スキン</button>
   <button id="m-material" onclick="setMode('material')" style="display:none">🧂 中間素材</button>
   <button id="newBtn" onclick="newDish()">新しい料理</button>
   <button onclick="document.getElementById('load').click()">読み込む</button>
@@ -176,7 +177,7 @@
   </div>
 </div>
 
-<div class="card">
+<div class="card" id="cardGoods">
   <h3 id="cardTitle">料理</h3>
   <div class="row">
     <label>名前</label>
@@ -211,7 +212,7 @@
   </div>
 </div>
 
-<div class="card">
+<div class="card" id="cardRecipe">
   <h3>作り方</h3>
   <div class="row only-material" style="display:none">
     <button class="primary" onclick="registerMaterial()">材料の一覧に入れる</button>
@@ -324,7 +325,7 @@
   </p>
 </div>
 
-<div class="card">
+<div class="card" id="cardOut">
   <h3>書き出される中身（品物の定義）</h3>
   <div class="row">
     <span class="hint">🔴 <b>本物のアイテムとして登録されます。</b>バニラの物を化かしません</span>
@@ -367,10 +368,33 @@ const HATA_H = 40;
  * ⚠️ <b>防具の 64×32 ではない。</b> あちらは防具の描き方で、こちらは体そのもの。
  */
 const SKIN = 64;
-const gw = () => (mode === "hata") ? HATA_W : (mode === "clothes") ? SKIN : N;
-const gh = () => (mode === "hata") ? HATA_H : (mode === "clothes") ? SKIN : N;
-/** マスの大きさ。⚠️ 旗は縦長、洋服は広いので小さめにしないと画面に入らない。 */
-const cell = () => (mode === "hata") ? 13 : (mode === "clothes") ? 8 : CELL;
+
+/** 体を描くタブか（洋服・スキン）。 */
+const isSkin = () => (mode === "clothes" || mode === "skin");
+
+/** 絵そのものの広さ。⚠️ 洋服は 64×64 を1枚だけ持つ。 */
+const sheetW = () => isSkin() ? SKIN : gw();
+const sheetH = () => isSkin() ? SKIN : gh();
+
+/**
+ * いま塗れる広さ。
+ *
+ * 🔴 <b>洋服は部位ごとに窓を開けて塗る</b>（人間の指示 2026-08-23）。
+ * 64×64 をまるごと出すと、どこが何だか分からない。
+ */
+const gw = () => (mode === "hata") ? HATA_W
+    : isSkin() ? (part().w + part().d) * 2 : N;
+const gh = () => (mode === "hata") ? HATA_H
+    : isSkin() ? (part().d + part().h) : N;
+
+/** 窓の左上。⚠️ 洋服以外はいつも 0。 */
+const gx = () => isSkin() ? partOrigin()[0] : 0;
+const gy = () => isSkin() ? partOrigin()[1] : 0;
+
+/** マスの大きさ。⚠️ 旗は縦長。洋服は部位が小さいので大きく出せる。 */
+const cell = () => (mode === "hata") ? 13
+    // ⚠️ 部位で広さが違う。頭は横に長いので、はみ出さない大きさに合わせる
+    : isSkin() ? Math.max(10, Math.min(28, Math.floor(560 / gw()))) : CELL;
 /**
  * どの面を描いているか。
  *
@@ -389,8 +413,11 @@ const SIDE_SET = {
   // 🔴 旗は1面だけ。裏は自動で鏡写しにする（本物の旗と同じ）
   // ⚠️ 名前を front にしない。料理の絵と同じ入れものになって、広さが食い違う
   hata: [["flag","旗"]],
-  // 🔴 洋服は1枚。スキンと同じ並びで、体ぜんぶがこの1枚に入っている
-  clothes: [["skin","服"]]
+  // 🔴 洋服とスキンは部位ごとのタブ。中身は1枚の 64×64 を分けて見ているだけ
+  clothes: [["head","頭"], ["body","胴"], ["arm_r","右腕"], ["arm_l","左腕"],
+            ["leg_r","右脚"], ["leg_l","左脚"]],
+  skin:    [["head","頭"], ["body","胴"], ["arm_r","右腕"], ["arm_l","左腕"],
+            ["leg_r","右脚"], ["leg_l","左脚"]]
 };
 
 /**
@@ -399,22 +426,41 @@ const SIDE_SET = {
  * 🔴 <b>ここを間違えると、袖が足に出るような絵になる。</b>
  * 中身は [左, 上, 幅, 高さ, 呼び名]。
  */
-const SKIN_PARTS = [
-  // [左, 上, 幅, 高さ, 奥ゆき, 呼び名]
-  [0, 0, 8, 8, 8, "頭"],       [32, 0, 8, 8, 8, "頭（外）"],
-  [16, 16, 8, 12, 4, "胴"],    [16, 32, 8, 12, 4, "胴（外）"],
-  [40, 16, 4, 12, 4, "右腕"],  [40, 32, 4, 12, 4, "右腕（外）"],
-  [32, 48, 4, 12, 4, "左腕"],  [48, 48, 4, 12, 4, "左腕（外）"],
-  [0, 16, 4, 12, 4, "右脚"],   [0, 32, 4, 12, 4, "右脚（外）"],
-  [16, 48, 4, 12, 4, "左脚"],  [0, 48, 4, 12, 4, "左脚（外）"]
-];
+/**
+ * 体の部位。
+ *
+ * 🔴 <b>1枚の絵をタブで分けて塗る</b>（人間の指示 2026-08-23）。
+ * 64×64 をまるごと出すと<b>どこが何だか分からない</b>。
+ *
+ * 中身は 幅・高さ・奥ゆき と、絵の中での左上（内側／外側）。
+ * ⚠️ <b>ひらいた形の大きさは 幅×2＋奥ゆき×2 と 奥ゆき＋高さ</b>で決まる。
+ */
+const SKIN_PART = {
+  head:  { name:"頭",   w:8, h:8,  d:8, inn:[0,0],   out:[32,0] },
+  body:  { name:"胴",   w:8, h:12, d:4, inn:[16,16], out:[16,32] },
+  arm_r: { name:"右腕", w:4, h:12, d:4, inn:[40,16], out:[40,32] },
+  arm_l: { name:"左腕", w:4, h:12, d:4, inn:[32,48], out:[48,48] },
+  leg_r: { name:"右脚", w:4, h:12, d:4, inn:[0,16],  out:[0,32] },
+  leg_l: { name:"左脚", w:4, h:12, d:4, inn:[16,48], out:[0,48] }
+};
+
+/** いま外側（上着・帽子のほう）を塗っているか。 */
+let outerLayer = false;
+
+/** いま塗っている部位。⚠️ 洋服とスキンのときだけ使う。 */
+function part() { return SKIN_PART[side] || SKIN_PART.body; }
+
+/** いまの部位の、絵の中での左上。 */
+function partOrigin() {
+  const p = part();
+  return outerLayer ? p.out : p.inn;
+}
 
 /**
  * 立方体をひらいたときの、6つの面の並び。
  *
  * 🔴 <b>ここを覚えていないと塗れない。</b> 絵の上に出す。
- * 中身は [呼び名, 色, ずらす左, ずらす上, 幅の取り方, 高さの取り方]。
- * ⚠️ <b>幅と高さは部位ごとに違う</b>ので、その場で当てはめる。
+ * 中身は [呼び名, 色, その面の場所を出す式]。
  */
 const SKIN_FACES = [
   ["上", "#ffd54a", (w,h,d) => [d, 0, w, d]],
@@ -424,6 +470,32 @@ const SKIN_FACES = [
   ["左", "#f2a25c", (w,h,d) => [d + w, d, d, h]],
   ["後", "#c792ea", (w,h,d) => [d + w + d, d, w, h]]
 ];
+
+/**
+ * 着せ替え人形に出すところ。
+ *
+ * 中身は [部位, 内か外か, 面, 置く左, 置く上]。
+ * ⚠️ <b>後ろから見ると左右が入れ替わる。</b>
+ */
+const DOLL = [
+  ["head", "前", 4, 0], ["body", "前", 4, 8],
+  ["arm_r", "前", 0, 8], ["arm_l", "前", 12, 8],
+  ["leg_r", "前", 4, 20], ["leg_l", "前", 8, 20]
+];
+
+const DOLL_BACK_POS = {
+  head: [4, 0], body: [4, 8], arm_r: [12, 8], arm_l: [0, 8],
+  leg_r: [8, 20], leg_l: [4, 20]
+};
+
+/** その部位・その層・その面が、絵のどこにあるか。 */
+function faceRect(key, outer, faceName) {
+  const p = SKIN_PART[key];
+  const o = outer ? p.out : p.inn;
+  const f = SKIN_FACES.find(x => x[0] === faceName);
+  const [dx, dy, w, h] = f[2](p.w, p.h, p.d);
+  return [o[0] + dx, o[1] + dy, w, h];
+}
 
 /** 目印を出すか。⚠️ 仕上がりを見たいときに邪魔になるので消せるようにする。 */
 let showGuide = true;
@@ -435,30 +507,6 @@ function toggleGuide() {
       showGuide ? "目印：出す" : "目印：消す";
   drawPaint();
 }
-
-/**
- * 前から見たときに出るところ。
- *
- * ⚠️ <b>着せ替え人形を描くのに使う。</b> 中身は [左, 上, 幅, 高さ, 置く左, 置く上]。
- */
-const DOLL_FRONT = [
-  [8, 8, 8, 8, 4, 0], [40, 8, 8, 8, 4, 0],          // 頭（内・外）
-  [20, 20, 8, 12, 4, 8], [20, 36, 8, 12, 4, 8],     // 胴
-  [44, 20, 4, 12, 0, 8], [44, 36, 4, 12, 0, 8],     // 右腕
-  [36, 52, 4, 12, 12, 8], [52, 52, 4, 12, 12, 8],   // 左腕
-  [4, 20, 4, 12, 4, 20], [4, 36, 4, 12, 4, 20],     // 右脚
-  [20, 52, 4, 12, 8, 20], [4, 52, 4, 12, 8, 20]     // 左脚
-];
-
-/** 後ろから見たときに出るところ。⚠️ 左右が入れ替わる。 */
-const DOLL_BACK = [
-  [24, 8, 8, 8, 4, 0], [56, 8, 8, 8, 4, 0],
-  [32, 20, 8, 12, 4, 8], [32, 36, 8, 12, 4, 8],
-  [52, 20, 4, 12, 12, 8], [52, 36, 4, 12, 12, 8],
-  [44, 52, 4, 12, 0, 8], [60, 52, 4, 12, 0, 8],
-  [12, 20, 4, 12, 8, 20], [12, 36, 4, 12, 8, 20],
-  [28, 52, 4, 12, 4, 20], [12, 52, 4, 12, 4, 20]
-];
 
 /**
  * 家具の中身。
@@ -502,7 +550,8 @@ const MODE_OF = { food: "food", block: "block", furniture: "furniture",
 const PLACEABLE = ["block", "furniture"];
 
 const WORD = { food: "料理", block: "建材", furniture: "家具",
-               material: "中間素材", hata: "旗", clothes: "洋服" };
+               material: "中間素材", hata: "旗", clothes: "洋服",
+               skin: "スキン" };
 const word = () => WORD[mode];
 
 /**
@@ -519,7 +568,12 @@ const word = () => WORD[mode];
  */
 let auto = { south:true, east:true, west:true, up:true, down:true };
 
-const blank = () => Array.from({length:gh()}, () => Array(gw()).fill(null));
+const blank = () => Array.from({length:sheetH()}, () => Array(sheetW()).fill(null));
+
+/** いま塗っている絵。⚠️ 洋服とスキンは1枚を分け合う。 */
+function sheet() {
+  return sides[mode === "skin" ? "skinFull" : "skin"];
+}
 
 let sides = { front: blank(), back: blank() };
 let side = "front";
@@ -534,7 +588,8 @@ let drawing = false;
  * 🔴 <b>家具は「面」ではなく「層」を描く。</b> 同じ描き方の仕組みに乗せるため、
  * ここで差し替える。ペンも消しゴムも塗りつぶしもそのまま使える。
  */
-const grid = () => (mode === "furniture") ? voxels[layer] : sides[side];
+const grid = () => (mode === "furniture") ? voxels[layer]
+    : isSkin() ? sheet() : sides[side];
 const paint = document.getElementById("paint");
 const pctx = paint.getContext("2d");
 
@@ -844,8 +899,19 @@ function drawSideRow() {
     b.onclick = () => setSide(key);
     row.appendChild(b);
   });
+  // 🔴 内側と外側の切り替え。⚠️ 部位のタブとは別の軸なので、まとめて出さない
+  if (isSkin()) {
+    const t = document.createElement("button");
+    t.className = "small" + (outerLayer ? " on" : "");
+    t.textContent = outerLayer ? "外側（上着）" : "内側（下着）";
+    t.onclick = () => {
+      outerLayer = !outerLayer;
+      drawSideRow(); drawPaint(); render();
+    };
+    row.appendChild(t);
+  }
   // ⚠️ 旗と洋服は1枚しかない。6面へ写す意味がない
-  if (!twoSided() && mode !== "hata" && mode !== "clothes") {
+  if (!twoSided() && mode !== "hata" && !isSkin()) {
     const all = document.createElement("button");
     all.className = "small";
     all.textContent = "この絵を6面すべてに";
@@ -904,18 +970,25 @@ function setMode(m) {
   document.getElementById("m-material").classList.toggle("on", m === "material");
   document.getElementById("m-hata").classList.toggle("on", m === "hata");
   document.getElementById("m-clothes").classList.toggle("on", m === "clothes");
+  document.getElementById("m-skin").classList.toggle("on", m === "skin");
   const solid = (m === "block" || m === "furniture");
   // ⚠️ 中間素材は料理と同じ扱い。食べられなくてよいので、効果の欄は出さない
   const flat = (m === "food" || m === "material");
 
   // 足りない面を作る（すでにある面はそのまま）
-  faces().forEach(([k]) => {
-    // ⚠️ 広さが食い違っていたら作り直す。旗は 20×40、ほかは 16×16
-    if (!sides[k] || sides[k].length !== gh() || sides[k][0].length !== gw()) {
-      sides[k] = blank();
-    }
-  });
   if (!faces().some(([k]) => k === side)) { side = faces()[0][0]; }
+  if (isSkin()) {
+    // 🔴 部位のタブは1枚の 64×64 を分けて見ているだけ。入れものは1つ
+    const key = (m === "skin") ? "skinFull" : "skin";
+    if (!sides[key] || sides[key].length !== SKIN) { sides[key] = blank(); }
+  } else {
+    faces().forEach(([k]) => {
+      // ⚠️ 広さが食い違っていたら作り直す。旗は 20×40、ほかは 16×16
+      if (!sides[k] || sides[k].length !== gh() || sides[k][0].length !== gw()) {
+        sides[k] = blank();
+      }
+    });
+  }
 
   // 料理だけの欄・建材だけの欄を出し分ける
   document.querySelectorAll(".only-food").forEach(
@@ -944,13 +1017,18 @@ function setMode(m) {
       "絵（" + gw() + "×" + gh() + "）";
   // ⚠️ 旗は回しても変わらない。押せると「壊れている」と思われる
   // 🔴 洋服と旗は回らない。回せると書いてあるのに回らないのがいちばん困る
-  const flat2d = (m === "hata" || m === "clothes");
+  const flat2d = (m === "hata" || isSkin());
   ["spin", "viewHand", "dragHint"].forEach(k => {
     const e = document.getElementById(k);
     if (e) { e.style.display = flat2d ? "none" : ""; }
   });
+  // 🔴 スキンは品物ではない。名前も材料も要らない
+  ["cardGoods", "cardRecipe", "cardOut"].forEach(k => {
+    const e = document.getElementById(k);
+    if (e) { e.style.display = (m === "skin") ? "none" : ""; }
+  });
   document.getElementById("previewTitle").textContent =
-      (m === "clothes") ? "着たところ" : (m === "hata") ? "旗の見え方" : "立体プレビュー";
+      isSkin() ? "着たところ" : (m === "hata") ? "旗の見え方" : "立体プレビュー";
   document.getElementById("newBtn").textContent = "新しい" + word();
   document.getElementById("useWord").textContent = word();
   document.getElementById("cardTitle").textContent = word();
@@ -1062,7 +1140,13 @@ function undo() {
 function clearAll() {
   snapshot();
   if (twoSided() && side === "back") { copyFrontToBack(); }
-  else { sides[side] = blank(); }
+  else if (isSkin()) {
+    // ⚠️ いま見えている部位だけ消す。ほかの部位まで消えると取り返しがつかない
+    const g = sheet();
+    for (let y = 0; y < gh(); y++) {
+      for (let x = 0; x < gw(); x++) { g[gy()+y][gx()+x] = null; }
+    }
+  } else { sides[side] = blank(); }
   drawPaint();
 }
 
@@ -1075,6 +1159,8 @@ function cellAt(ev) {
 
 function apply(x, y) {
   const g = grid();
+  // 🔴 洋服は窓ごしに塗る。窓の左上ぶんをずらす
+  x += gx(); y += gy();
   // ⚠️ 描いた面は自動をやめる。描いたそばから上書きされたら意味がない
   if (mode === "block" && auto[side]) { auto[side] = false; drawSideRow(); }
   if (tool === "pen") { g[y][x] = color; }
@@ -1087,10 +1173,12 @@ function apply(x, y) {
 
 function flood(g, x, y, from) {
   if (from === color) { return; }
+  // ⚠️ 窓の外へはみ出さない。よその部位まで塗ってしまう
+  const x0 = gx(), y0 = gy(), x1 = gx() + gw(), y1 = gy() + gh();
   const stack = [[x,y]];
   while (stack.length) {
     const [cx,cy] = stack.pop();
-    if (cx<0||cy<0||cx>=gw()||cy>=gh()) { continue; }
+    if (cx<x0||cy<y0||cx>=x1||cy>=y1) { continue; }
     if (g[cy][cx] !== from) { continue; }
     g[cy][cx] = color;
     stack.push([cx+1,cy],[cx-1,cy],[cx,cy+1],[cx,cy-1]);
@@ -1128,7 +1216,8 @@ function drawPaint() {
     for (let x=0;x<gw();x++) {
       pctx.fillStyle = ((x+y)%2) ? "#00000012" : "#ffffff12";
       pctx.fillRect(x*C, y*C, C, C);
-      if (g[y][x]) { pctx.fillStyle = g[y][x]; pctx.fillRect(x*C, y*C, C, C); }
+      const here = g[gy()+y][gx()+x];
+      if (here) { pctx.fillStyle = here; pctx.fillRect(x*C, y*C, C, C); }
       // 🔴 裏の画面には表の形を薄く出す。形は表で決まるので、
       //    その外に描いても出ない。⚠️ 見えないと「描いたのに出ない」になる
       if (twoSided() && side === "back" && !sides.front[y][N-1-x]) {
@@ -1144,23 +1233,16 @@ function drawPaint() {
       }
     }
   }
-  // 🔴 スキンの並びは覚えられない。どこが体のどこで、どの向きかを絵の上に出す
-  if (mode === "clothes" && showGuide) {
-    pctx.font = "9px sans-serif";
-    SKIN_PARTS.forEach(([ox, oy, w, h, d, name]) => {
-      SKIN_FACES.forEach(([label, tint, where]) => {
-        const [dx, dy, fw, fh] = where(w, h, d);
-        const x = (ox + dx) * C, y = (oy + dy) * C;
-        pctx.strokeStyle = tint + "cc"; pctx.lineWidth = 1.5;
-        pctx.strokeRect(x, y, fw*C, fh*C);
-        pctx.fillStyle = tint + "ee";
-        pctx.fillText(label, x + 2, y + 10);
-      });
-      // 部位の名前は左上に1つだけ。⚠️ 面ごとに出すと文字だらけになる
-      pctx.fillStyle = "#ffffffcc";
-      pctx.font = "10px sans-serif";
-      pctx.fillText(name, ox*C + 2, oy*C - 2);
-      pctx.font = "9px sans-serif";
+  // 🔴 どの向きの面かを絵の上に出す。並びは覚えられない
+  if (isSkin() && showGuide) {
+    const p = part();
+    pctx.font = "bold 13px sans-serif";
+    SKIN_FACES.forEach(([label, tint, where]) => {
+      const [dx, dy, fw, fh] = where(p.w, p.h, p.d);
+      pctx.strokeStyle = tint; pctx.lineWidth = 2;
+      pctx.strokeRect(dx*C, dy*C, fw*C, fh*C);
+      pctx.fillStyle = tint;
+      pctx.fillText(label, dx*C + 4, dy*C + 15);
     });
   }
   pctx.strokeStyle = "#8884"; pctx.lineWidth = 1;
@@ -1210,17 +1292,8 @@ function drawViewFaces() {
   if (!box) { return; }
   box.innerHTML = "";
   if (mode === "furniture") { return; }   // ⚠️ 家具は面が無いので出さない
-  // 🔴 洋服は「どちらから見るか」だけ。面を選ばせるものではない
-  if (mode === "clothes") {
-    [["前", false], ["後ろ", true]].forEach(([label, back]) => {
-      const b = document.createElement("button");
-      b.className = "small" + (dollBack === back ? " on" : "");
-      b.textContent = label;
-      b.onclick = () => { dollBack = back; drawViewFaces(); };
-      box.appendChild(b);
-    });
-    return;
-  }
+  // ⚠️ 洋服は前と後ろを並べて出しているので、選ばせるものが無い
+  if (isSkin()) { return; }
   faces().forEach(([key, label]) => {
     const b = document.createElement("button");
     b.className = "small";
@@ -1370,36 +1443,45 @@ function cubePolys(cx, cy, scale) {
 /**
  * 着せ替え人形。
  *
- * 🔴 <b>スキンの並びのままでは、どう見えるか分からない。</b>
- * 前と後ろに組み立てて出す。
+ * 🔴 <b>前と後ろを並べて出す</b>（2026-08-23）。切り替えにすると、
+ * <b>片方しか見えないので「動いていない」ように見える</b>。
  *
  * ⚠️ <b>塗っていないところは素肌が出る。</b> 灰色の人形で表す。
  */
 function drawDoll() {
-  const g = sides.skin;
-  const cuts = (dollBack ? DOLL_BACK : DOLL_FRONT);
-  const C = Math.min((solid.width - 40) / 16, (solid.height - 40) / 32);
-  const x0 = (solid.width - 16*C) / 2;
-  const y0 = 16;
-  // 素肌（下じき）
-  sctx.fillStyle = "#4a4a52";
-  [[4,0,8,8], [4,8,8,12], [0,8,4,12], [12,8,4,12], [4,20,4,12], [8,20,4,12]]
-      .forEach(r => sctx.fillRect(x0 + r[0]*C, y0 + r[1]*C, r[2]*C, r[3]*C));
-  // 服
-  cuts.forEach(c => {
-    for (let y = 0; y < c[3]; y++) {
-      for (let x = 0; x < c[2]; x++) {
-        const col = g[c[1]+y][c[0]+x];
-        if (!col) { continue; }
-        sctx.fillStyle = col;
-        sctx.fillRect(x0 + (c[4]+x)*C, y0 + (c[5]+y)*C, C + 0.5, C + 0.5);
-      }
-    }
+  const g = sheet();
+  // ⚠️ 切り替えの途中で呼ばれても落ちないようにする
+  if (!g || g.length < SKIN) { return; }
+  const C = Math.min((solid.width - 30) / 34, (solid.height - 30) / 34);
+  const top = 20;
+  [false, true].forEach((back, i) => {
+    const x0 = 8 + i * 18 * C;
+    // 素肌（下じき）
+    sctx.fillStyle = "#4a4a52";
+    [[4,0,8,8], [4,8,8,12], [0,8,4,12], [12,8,4,12], [4,20,4,12], [8,20,4,12]]
+        .forEach(r => sctx.fillRect(x0 + r[0]*C, top + r[1]*C, r[2]*C, r[3]*C));
+    // 服（内側 → 外側の順に重ねる）
+    Object.keys(SKIN_PART).forEach(key => {
+      const pos = back ? DOLL_BACK_POS[key] : DOLL.find(d => d[0] === key).slice(2);
+      [false, true].forEach(outer => {
+        const [sx, sy, w, h] = faceRect(key, outer, back ? "後" : "前");
+        for (let y = 0; y < h; y++) {
+          for (let x = 0; x < w; x++) {
+            const col = g[sy+y][sx+x];
+            if (!col) { continue; }
+            // ⚠️ 後ろから見ると左右が入れ替わる
+            const px = back ? (w - 1 - x) : x;
+            sctx.fillStyle = col;
+            sctx.fillRect(x0 + (pos[0]+px)*C, top + (pos[1]+y)*C, C + 0.5, C + 0.5);
+          }
+        }
+      });
+    });
+    sctx.fillStyle = "#cfd3da";
+    sctx.font = "12px sans-serif";
+    sctx.fillText(back ? "後ろ" : "前", x0 + 5*C, 14);
   });
 }
-
-/** 人形を後ろから見るか。 */
-let dollBack = false;
 
 function drawHata() {
   const g = sides.flag;
@@ -1437,7 +1519,7 @@ function draw3D() {
     drawHata();
     return;
   }
-  if (mode === "clothes") {
+  if (isSkin()) {
     drawDoll();
     return;
   }
@@ -1497,9 +1579,22 @@ function drawPolys(polys, cx, cy) {
 }
 
 let last = 0;
+/**
+ * 描き続ける。
+ *
+ * 🔴 <b>途中で失敗しても止めない</b>（2026-08-23）。
+ * ここで例外が出ると<b>次の回が予約されず、プレビューが二度と動かなくなる</b>。
+ * ⚠️ <b>原因はコンソールに1回だけ出す。</b> 毎フレーム出すと読めない。
+ */
+let toldOnce = false;
+
 function loop(t) {
   if (spin && t - last > 33) { yaw += 0.02; last = t; }
-  draw3D();
+  try {
+    draw3D();
+  } catch (e) {
+    if (!toldOnce) { toldOnce = true; console.error("プレビューで失敗しました", e); }
+  }
   requestAnimationFrame(loop);
 }
 
@@ -1845,6 +1940,8 @@ function addEffect(kind) {
 //  書き出し
 // ══════════════════════════════════════════════════════════════
 const val = id => document.getElementById(id).value;
+/** 案内文の改行。⚠️ 直に書くと編集のたびに壊れやすい。 */
+const chr10 = () => String.fromCharCode(10);
 /**
  * 絵に薄い色が入っているか。
  *
@@ -1852,6 +1949,10 @@ const val = id => document.getElementById(id).value;
  * <b>そのブロックは「通す」扱いにしないといけない</b>。
  */
 function hasSeeThrough() {
+  if (isSkin()) {
+    const g = sheet();
+    return g.some(row => row.some(c => seeThroughColor(c)));
+  }
   if (mode === "furniture") {
     for (let z = 0; z < N; z++) {
       for (let y = 0; y < N; y++) {
@@ -2281,6 +2382,11 @@ function render() {
     ? "🔴 <b>前を描けば、後・右・左はついてきます。</b>上と下は<b>縁の色</b>で塞ぎます。<br>" +
       "⚠️ 面を自分で描くと、その面は自動をやめます。「自動に戻す」で戻せます。<br>" +
       "⚠️ <b>空けたところは空いたまま出ます。</b>隙間のある建材も作れます。"
+    : (mode === "skin")
+    ? "🔴 <b>自分のスキンを描くところです。</b>品物にはなりません。<br>" +
+      "⚠️ <b>部位のタブと「内側／外側」で塗り分けます。</b>外側は帽子や上着の層です。<br>" +
+      "⚠️ <b>「一式を保存」で skin.png が出ます。</b>Minecraft の設定から入れてください。<br>" +
+      "⚠️ <b>目印の色は向きです。</b>青＝前、紫＝後、緑＝右、橙＝左、黄＝上、赤＝下。"
     : (mode === "clothes")
     ? "🔴 <b>並びはスキンと同じ 64×64 です。</b>頭・胴・腕・脚がこの1枚に入っています。<br>" +
       "⚠️ <b>塗っていないところは素肌や防具が透けます。</b>着たいところだけ塗ってください。<br>" +
@@ -2362,7 +2468,7 @@ function copyJson() {
  * ⚠️ <b>外側の層があればそちらを使う。</b> 上着のように外側だけ描く服がある。
  */
 function iconGrid() {
-  const g = sides.skin;
+  const g = sheet();
   // 着るところ → 前から見て代表になるところ [内側, 外側]
   const CUT = {
     head:  [[8, 8, 8, 8], [40, 8, 8, 8]],
@@ -2434,6 +2540,16 @@ function download(name, data, type) {
 }
 
 function saveAll() {
+  // 🔴 スキンは品物ではない。絵を1枚出すだけ
+  if (mode === "skin") {
+    pngBlob(sheet(), b => download("skin.png", b));
+    setTimeout(() => alert(
+      "スキンを保存しました（skin.png）。" + chr10() + chr10() +
+      "Minecraft の設定 →「スキンをカスタマイズ」から入れてください。" + chr10() +
+      "⚠️ 64×64 です。腕を細くするかどうかはゲーム側で選びます。"
+    ), 300);
+    return;
+  }
   const id = val("id").trim();
   if (!/^[a-z0-9_]+$/.test(id)) {
     alert("ID は半角の英数字と _ だけにしてください。");
@@ -2462,7 +2578,7 @@ function saveAll() {
     hataBlob(b => download(id + ".png", b));
   } else if (mode === "clothes") {
     // 🔴 着たときの絵（スキンと同じ 64×64）
-    pngBlob(sides.skin, b => download(id + ".png", b));
+    pngBlob(sheet(), b => download(id + ".png", b));
     // 🔴 持ち物の中で見える小さい絵。⚠️ 服の絵から切り出して作る
     pngBlob(iconGrid(), b => download(id + "_icon.png", b));
   } else if (mode === "furniture") {
