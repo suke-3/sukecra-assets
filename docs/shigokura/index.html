@@ -81,8 +81,8 @@
   <button id="m-food" class="on" onclick="setMode('food')">🍜 料理</button>
   <button id="m-block" onclick="setMode('block')">🧱 建材</button>
   <button id="m-furniture" onclick="setMode('furniture')">🪑 家具</button>
-  <button id="m-clothes" onclick="setMode('clothes')">👕 洋服</button>
-  <button id="m-hata" onclick="setMode('hata')">🚩 旗</button>
+  <button id="m-clothes" onclick="setMode('clothes')" style="display:none">👕 洋服</button>
+  <button id="m-hata" onclick="setMode('hata')" style="display:none">🚩 旗</button>
   <button id="m-skin" onclick="setMode('skin')">🧍 スキン</button>
   <button id="m-material" onclick="setMode('material')" style="display:none">🧂 中間素材</button>
   <button id="newBtn" onclick="newDish()">新しい料理</button>
@@ -1244,6 +1244,8 @@ paint.addEventListener("pointerleave", () => {
 
 function drawPaint() {
   const g = grid();
+  // ⚠️ 切り替えや「元に戻す」の途中で絵が無いことがある。落とさない
+  if (!g) { return; }
   const showDepth = (mode === "furniture");
   const C = cell();
   // ⚠️ 広さが変わるので、描く前に大きさを合わせる
@@ -1929,8 +1931,16 @@ function setAdmin(on) {
   document.getElementById("adminBtn").classList.toggle("on", on);
   document.getElementById("adminNote").style.display = on ? "" : "none";
   document.getElementById("m-material").style.display = on ? "" : "none";
-  // ⚠️ 運営モードを切ったら、中間素材のタブから出す
-  if (!on && mode === "material") { setMode("food"); }
+  // 🔴 洋服と旗は運営だけ（人間の指示 2026-08-23）。
+  //    参加者に見えるのは冒険者・料理人・建築家の3職ぶんだけ。
+  //    ⚠️ スキンは職業と関係ないので、いつでも見える
+  ["m-clothes", "m-hata"].forEach(k => {
+    document.getElementById(k).style.display = on ? "" : "none";
+  });
+  // ⚠️ 運営モードを切ったら、隠したタブから出す
+  if (!on && (mode === "material" || mode === "clothes" || mode === "hata")) {
+    setMode("food");
+  }
   drawMaterials();
   drawEffects(); render();
 }
@@ -2795,21 +2805,26 @@ function loadFile(ev) {
   if (f.name.endsWith(".png")) {
     const img = new Image();
     img.onload = () => {
+      // ⚠️ 広さはタブで違う。16×16 に決め打つと旗と洋服が壊れる
+      const w = sheetW(), h = sheetH();
       const c = document.createElement("canvas");
-      c.width = N; c.height = N;
+      c.width = w; c.height = h;
       const x = c.getContext("2d");
-      x.drawImage(img, 0, 0, N, N);
-      const d = x.getImageData(0,0,N,N).data;
+      x.drawImage(img, 0, 0, w, h);
+      const d = x.getImageData(0, 0, w, h).data;
       snapshot();
       const g = grid();
-      for (let y=0;y<N;y++) {
-        for (let px=0;px<N;px++) {
-          const i = (y*N+px)*4;
-          g[y][px] = d[i+3] < 20 ? null
-            : "#" + [d[i],d[i+1],d[i+2]].map(v => v.toString(16).padStart(2,"0")).join("");
+      for (let y = 0; y < h; y++) {
+        for (let px = 0; px < w; px++) {
+          const i = (y*w + px) * 4;
+          if (d[i+3] < 20) { g[y][px] = null; continue; }
+          const hex = v => v.toString(16).padStart(2, "0");
+          // ⚠️ 薄い色はそのまま薄いまま読む。捨てると半透明が消える
+          g[y][px] = "#" + hex(d[i]) + hex(d[i+1]) + hex(d[i+2])
+              + (d[i+3] >= 250 ? "" : hex(d[i+3]));
         }
       }
-      drawPaint();
+      drawPaint(); render();
     };
     img.src = URL.createObjectURL(f);
   } else {
@@ -2872,7 +2887,12 @@ function newDish() {
   snapshot();
   // ⚠️ 広さがタブで違う。いったん捨てて、いまのタブのぶんだけ作り直す
   Object.keys(sides).forEach(k => { delete sides[k]; });
-  faces().forEach(([k]) => { sides[k] = blank(); });
+  if (isSkin()) {
+    // 🔴 洋服とスキンは1枚を分けて見ているだけ。部位ごとに作らない
+    sides[mode === "skin" ? "skinFull" : "skin"] = blank();
+  } else {
+    faces().forEach(([k]) => { sides[k] = blank(); });
+  }
   side = faces()[0][0];
   voxels = Array.from({length:N},
       () => Array.from({length:N}, () => Array(N).fill(null)));
