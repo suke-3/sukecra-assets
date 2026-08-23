@@ -128,6 +128,7 @@
     <h3 id="artTitle">絵（16×16）</h3>
 
     <div class="side" id="sideRow"></div>
+    <p class="hint" id="armorNote" style="display:none"></p>
     <div class="side only-furniture" id="depthRow" style="display:none"></div>
 
 
@@ -1078,6 +1079,29 @@ function setTool(t) {
  * ⚠️ <b>脚の防具だけ別の絵になる</b>（{@code humanoid_leggings}）。
  * 胴と重ならないよう、ゲーム側が少し細く描く。
  */
+/**
+ * バニラの防具が<b>実際に塗っているところ</b>。
+ *
+ * 🔴 <b>脚と足は同じ場所を分け合っている</b>（人間の指摘 2026-08-24）。
+ * 脚の絵の置き場所は 1 か所（16×16）しかなく、
+ * <b>ズボンは上のほう、ブーツは下のほう</b>を使う。だから同じ編集画面になる。
+ *
+ * ⚠️ <b>これは決まりではなく目安。</b> 外を塗っても描かれる
+ * （ゲームは脚の箱を丸ごと描き、透明なところが見えないだけ）。
+ * <b>ひざ上まであるブーツも作れる。</b>
+ *
+ * 中身は キャップ（上ぶた・下ぶた）と、横の面の<b>何段目から何段目まで</b>。
+ * 26.2 の鉄の防具の絵を1マスずつ読んで取った（2026-08-24）。
+ */
+const ARMOR_GUIDE = {
+  "chest/body":  { cap: null,     from: 0, to: 11 },
+  "chest/arm_r": { cap: "top",    from: 0, to: 5 },
+  "legs/body":   { cap: null,     from: 7, to: 12 },
+  "legs/leg_r":  { cap: "top",    from: 0, to: 9 },
+  "feet/leg_r":  { cap: "bottom", from: 6, to: 12 }
+  // ⚠️ 頭は全部つかう。書かない＝目安なし
+};
+
 const ARMOR_SIDES = {
   head:  [["head", "頭"]],
   chest: [["body", "胴"], ["arm_r", "腕"]],
@@ -1149,6 +1173,16 @@ function setLayer(z) {
 function drawSideRow() {
   const row = document.getElementById("sideRow");
   row.innerHTML = "";
+  // ⚠️ 部位で広さが変わる。見出しが古いままだと「なぜこの形なのか」が分からない
+  const title = document.getElementById("artTitle");
+  if (title) { title.textContent = "絵（" + gw() + "×" + gh() + "）"; }
+  // 🔴 脚と足が同じ画面になる理由は、その場で言わないと伝わらない
+  const note = document.getElementById("armorNote");
+  if (note) {
+    const t = armorNote();
+    note.innerHTML = t;
+    note.style.display = t ? "" : "none";
+  }
   // 🔴 家具に「面」は無い。積み木なので、層のつまみだけでよい
   if (mode === "furniture") { row.style.display = "none"; return; }
   row.style.display = "";
@@ -1536,6 +1570,7 @@ function drawPaint() {
       pctx.fillText(label, dx*C + 4, dy*C + 15);
     });
   }
+  drawArmorGuide(C);
   pctx.strokeStyle = "#8884"; pctx.lineWidth = 1;
   for (let i=0;i<=gw();i++) {
     pctx.beginPath(); pctx.moveTo(i*C,0); pctx.lineTo(i*C,gh()*C); pctx.stroke();
@@ -1853,9 +1888,13 @@ function bodyPolys(cx, cy, scale) {
   const skinBase = (mode === "clothes" || mode === "armor") ? "#4a4a52" : "#2b2f36";
   const MID = 16;   // 体のまん中（回す軸）
 
+  // 🔴 防具は左腕・左脚の絵を持たない。ゲームが右のものを鏡写しにする（2026-08-24）
+  //    ⚠️ プレビューでも同じにしないと、片側だけ防具を着た姿になる
+  const MIRROR = { arm_l: "arm_r", leg_l: "leg_r" };
   Object.keys(SKIN_PART).forEach(key => {
     [false, true].forEach(outer => {
-      const p = SKIN_PART[key];
+      // ⚠️ 箱は左のまま。絵の取り出し先だけ右に差し替える
+      const p = SKIN_PART[(mode === "armor" && MIRROR[key]) || key];
       const org = outer ? p.out : p.inn;
       const grow = outer ? 0.6 : 0;
       const box = BODY_BOX[key];
@@ -2838,7 +2877,10 @@ function render() {
     : (mode === "armor")
     ? "🔴 <b>着るところごとに1つ</b>です。頭・胴・脚・足で別々に作ります。<br>" +
       "⚠️ <b>ダイヤの胴が防御力8、ネザライトの強度が3</b>です。<br>" +
-      "⬜ <b>着たときの見た目はまだ出せません。</b>体は守られますが姿は変わりません。"
+      "🔴 <b>描くのは「着たときの絵」です。</b>持ち物の中の小さい絵は、そこから切り出して作ります。<br>" +
+      "🔴 <b>左右は片方だけ描きます。</b>反対側はゲームが鏡写しにします。<br>" +
+      "⚠️ <b>脚と足は同じ場所を分け合っています。</b>ズボンは上のほう、ブーツは下のほう。<br>" +
+      "⚠️ <b>右のプレビューはドラッグで回せます。</b>横も上下も確かめられます。"
     : (mode === "skin")
     ? "🔴 <b>自分のスキンを描くところです。</b>品物にはなりません。<br>" +
       "⚠️ <b>部位のタブと「内側／外側」で塗り分けます。</b>外側は帽子や上着の層です。<br>" +
@@ -2968,6 +3010,25 @@ function enchantFits(where) {
  * 🔴 <b>塗る場所も変わる</b>ので、タブを作り直して、いま見ている部位を確かめ直す。
  * ⚠️ <b>やらないと、足の防具のまま胴を塗る</b>ことになる。
  */
+/** その部位の一言。⚠️ 脚と足が同じ画面になる理由をここで言う。 */
+function armorNote() {
+  if (mode !== "armor") { return ""; }
+  const key = val("armorWear") + "/" + side;
+  const NOTE = {
+    "head/head": "頭の箱ぜんぶを使います。",
+    "chest/body": "胴の横の面ぜんぶ。上ぶた・下ぶたは使いません。",
+    "chest/arm_r": "肩から上のほう。⚠️ <b>腕は片方だけ描きます</b>（反対側は鏡写し）。",
+    "legs/body": "腰まわり。<b>下のほうだけ</b>使います（胴の防具と重ならないように）。",
+    "legs/leg_r": "ももからすねまで。🔴 <b>足の防具と同じ場所</b>で、ズボンは<b>上のほう</b>を使います。",
+    "feet/leg_r": "くるぶしから下。🔴 <b>脚の防具と同じ場所</b>で、ブーツは<b>下のほう</b>を使います。"
+  };
+  const t = NOTE[key];
+  if (!t) { return ""; }
+  // ⚠️ 翳りが出ないところで「翳っている」と言わない（頭は全部つかう）
+  if (!ARMOR_GUIDE[key]) { return t; }
+  return "⚠️ <b>翳っているところはバニラの防具が塗っていないところ</b>です（塗っても描かれます）。<br>" + t;
+}
+
 function armorWearChanged() {
   if (!faces().some(([k]) => k === side)) { side = faces()[0][0]; }
   drawSideRow();
@@ -3192,6 +3253,36 @@ function showBaseHint() {
  *
  * ⚠️ <b>左腕と左脚は入らない。</b> ゲームが右のものを鏡写しにして使う。
  */
+/**
+ * 防具の目安を出す。
+ *
+ * 🔴 <b>バニラが塗っていないところを翳らせる。</b>
+ * ⚠️ <b>脚と足は同じ画面</b>なので、これが無いと見分けがつかない。
+ * ⚠️ <b>塗ってはいけないわけではない。</b> 翳っているところも塗れば描かれる。
+ */
+function drawArmorGuide(C) {
+  if (mode !== "armor" || !showGuide) { return; }
+  const g = ARMOR_GUIDE[val("armorWear") + "/" + side];
+  if (!g) { return; }
+  const p = part();
+  const inside = (x, y) => {
+    if (y < p.d) {
+      // 上ぶた（左）と下ぶた（右）
+      if (g.cap === "top") { return x >= p.d && x < p.d + p.w; }
+      if (g.cap === "bottom") { return x >= p.d + p.w && x < p.d + p.w * 2; }
+      return false;
+    }
+    const row = y - p.d;
+    return row >= g.from && row < g.to;
+  };
+  pctx.fillStyle = "rgba(0,0,0,0.42)";
+  for (let y = 0; y < gh(); y++) {
+    for (let x = 0; x < gw(); x++) {
+      if (!inside(x, y)) { pctx.fillRect(x*C, y*C, C, C); }
+    }
+  }
+}
+
 function armorGrid() {
   const g = sheet();
   return g.slice(0, 32).map(row => row.slice(0, SKIN));
