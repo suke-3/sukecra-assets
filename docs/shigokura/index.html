@@ -86,6 +86,7 @@
   <button id="m-clothes" onclick="setMode('clothes')" style="display:none">👕 洋服</button>
   <button id="m-hata" onclick="setMode('hata')" style="display:none">🚩 旗</button>
   <button id="m-skin" onclick="setMode('skin')">🧍 スキン</button>
+  <button id="m-medicine" onclick="setMode('medicine')" style="display:none">💉 薬</button>
   <button id="m-material" onclick="setMode('material')" style="display:none">🧂 中間素材</button>
   <button id="newBtn" onclick="newDish()">新しい料理</button>
   <button onclick="document.getElementById('load').click()">読み込む</button>
@@ -217,6 +218,7 @@
       <option value="builder">建築家</option>
       <option value="tailor">呉服屋</option>
       <option value="smith">鍛冶屋</option>
+      <option value="medic">医師</option>
     </select>
     <span class="hint">⚠️ その職業に就いていないと作れません</span>
   </div>
@@ -281,9 +283,25 @@
            oninput="render()">
     <span class="hint">⚠️ どちらも<b>合計</b>。素手は 攻撃力1・速さ4</span>
   </div>
-  <div class="row only-gear" style="display:none">
+  <div class="row only-enchant" style="display:none">
     <label>エンチャント</label>
     <div id="enchants" style="flex:1"></div>
+  </div>
+  <div class="row only-medicine" style="display:none">
+    <label>種類</label>
+    <select id="doseKind" onchange="doseKindChanged()">
+      <option value="dose">薬（打たれるもの）</option>
+      <option value="syringe">注射器（打つ道具）</option>
+    </select>
+    <span class="hint" id="doseHint" style="flex:1"></span>
+  </div>
+  <div class="row only-dose" style="display:none">
+    <label>寝ている人だけ</label>
+    <input type="checkbox" id="bedOnly" onchange="render()">
+    <span class="hint">
+      🔴 <b>立てると、ベッドで寝ている相手にしか打てなくなります。</b>
+      強い効果はここに入れてください。⚠️ 戦いの流れを変えないためです
+    </span>
   </div>
   <div class="row only-armor" style="display:none">
     <label>着るところ</label>
@@ -609,6 +627,8 @@ const SIDE_SET = {
   // ⚠️ 武器と防具も持ち物の絵。料理と同じ2面
   weapon: [["front","表"], ["back","裏"]],
   armor: [["front","表"], ["back","裏"]],
+  // ⚠️ 薬も持ち物の絵。料理と同じ2面
+  medicine: [["front","表"], ["back","裏"]],
   block: [["north","前"], ["south","後"], ["east","右"], ["west","左"],
           ["up","上"], ["down","下"]],
   // 家具は建材と同じ6面。⚠️ 違うのは「深さ」を持てることだけ
@@ -775,19 +795,20 @@ let mode = "food";
  */
 const CATEGORY = { food: "food", block: "block", furniture: "furniture",
                   material: "food", hata: "hata", clothes: "clothes",
-                  weapon: "weapon", armor: "armor" };
+                  weapon: "weapon", armor: "armor", medicine: "medicine" };
 
 /** 品目 → タブ。⚠️ 読み込みのときに使う。 */
 const MODE_OF = { food: "food", block: "block", furniture: "furniture",
                   hata: "hata", clothes: "clothes",
-                  weapon: "weapon", armor: "armor" };
+                  weapon: "weapon", armor: "armor", medicine: "medicine" };
 
 /** 置けるもの。⚠️ サーバーの categories.json の block と揃えること。 */
 const PLACEABLE = ["block", "furniture"];
 
 const WORD = { food: "料理", block: "建材", furniture: "家具",
                material: "中間素材", hata: "旗", clothes: "洋服",
-               skin: "スキン", weapon: "武器", armor: "防具" };
+               skin: "スキン", weapon: "武器", armor: "防具",
+               medicine: "薬" };
 const word = () => WORD[mode];
 
 /**
@@ -1295,8 +1316,12 @@ function setMode(m) {
   }
 
   // 料理だけの欄・建材だけの欄を出し分ける
+  // 🔴 効果の欄は料理と薬で使う。⚠️ 注射器には要らない
   document.querySelectorAll(".only-food").forEach(
     e => e.style.display = (m === "food") ? "" : "none");
+  document.querySelectorAll(".card.only-food").forEach(
+    e => e.style.display = (m === "food" || (m === "medicine" && !isSyringe()))
+        ? "" : "none");
   document.querySelectorAll(".only-material").forEach(
     e => e.style.display = (m === "material") ? "" : "none");
   document.querySelectorAll(".only-block").forEach(
@@ -1309,8 +1334,17 @@ function setMode(m) {
     e => e.style.display = (m === "weapon") ? "" : "none");
   document.querySelectorAll(".only-armor").forEach(
     e => e.style.display = (m === "armor") ? "" : "none");
+  // 🔴 薬のタブ。⚠️ 注射器のときは効果もベッドの欄も出さない
+  document.querySelectorAll(".only-medicine").forEach(
+    e => e.style.display = (m === "medicine") ? "" : "none");
+  document.querySelectorAll(".only-dose").forEach(
+    e => e.style.display = (m === "medicine" && !isSyringe()) ? "" : "none");
   // ⚠️ 耐久は武器と防具のどちらにも要る
+  // ⚠️ 耐久は注射器にも要る。エンチャントは要らないので印を分けてある
   document.querySelectorAll(".only-gear").forEach(
+    e => e.style.display = (m === "weapon" || m === "armor"
+        || (m === "medicine" && isSyringe())) ? "" : "none");
+  document.querySelectorAll(".only-enchant").forEach(
     e => e.style.display = (m === "weapon" || m === "armor") ? "" : "none");
   // 🔴 明るさは建材・家具・洋服で使う
   document.querySelectorAll(".only-glow").forEach(
@@ -1323,6 +1357,7 @@ function setMode(m) {
   document.getElementById("job").value =
       (m === "hata" || m === "clothes") ? "tailor"
       : (m === "weapon" || m === "armor") ? "smith"
+      : (m === "medicine") ? "medic"
       : (flat ? "cook" : "builder");
   // ⚠️ 呼び名をそろえる。いまどれを作っているかが文字で分かるように
   // ⚠️ 広さはタブで変わる。見出しに出さないと「なぜ縦長なのか」が分からない
@@ -1374,7 +1409,8 @@ function setMode(m) {
 function twoSided() {
   // ⚠️ 持ち物の絵はどれも表と裏。武器も同じ作り
   // 🔴 防具はここに入らない。着たときの絵から持ち物の絵を切り出すため（2026-08-24）
-  return mode === "food" || mode === "material" || mode === "weapon";
+  return mode === "food" || mode === "material" || mode === "weapon"
+      || mode === "medicine";
 }
 
 /** 🔴 裏は「表の写し」から始める。まっさらから描き直させない。 */
@@ -2222,11 +2258,12 @@ function setAdmin(on) {
   // 🔴 洋服と旗は運営だけ（人間の指示 2026-08-23）。
   //    参加者に見えるのは冒険者・料理人・建築家の3職ぶんだけ。
   //    ⚠️ スキンは職業と関係ないので、いつでも見える
-  ["m-clothes", "m-hata", "m-weapon", "m-armor"].forEach(k => {
+  ["m-clothes", "m-hata", "m-weapon", "m-armor", "m-medicine"].forEach(k => {
     document.getElementById(k).style.display = on ? "" : "none";
   });
   // ⚠️ 運営モードを切ったら、隠したタブから出す
-  if (!on && ["material", "clothes", "hata", "weapon", "armor"].includes(mode)) {
+  if (!on && ["material", "clothes", "hata", "weapon", "armor", "medicine"]
+      .includes(mode)) {
     setMode("food");
   }
   drawMaterials();
@@ -2516,6 +2553,23 @@ function goods() {
     g.toughness = Number(val("toughness")) || 0;
     g.durability = Number(val("durability")) || 0;
     g.enchants = picked.slice();
+    return g;
+  } else if (mode === "medicine") {
+    // 🔴 レシピは運営が作る（裁定 2026-08-23）。誰でも作れるが職業は見る
+    g.open = true;
+    if (isSyringe()) {
+      // 🔴 注射器は道具。⚠️ 組み立て方だけ武器と同じで、鍛冶屋の枠は使わない
+      g.syringe = true;
+      g.base = "spear";
+      g.damage = 1;
+      g.swing = 1.6;
+      g.durability = Number(val("durability")) || 0;
+      g.enchants = [];
+    } else {
+      g.bedOnly = on("bedOnly");
+      g.effects = [].concat(buffs, debuffs)
+        .map(e => ({ id: e.id, seconds: e.sec, amplifier: e.amp }));
+    }
     return g;
   } else if (mode === "material") {
     // 🔴 中間素材は運営が足すもの。誰でも作れて、枠も使わない
@@ -3037,6 +3091,31 @@ function armorWearChanged() {
   render();
 }
 
+/** いま注射器を作っているか。⚠️ 薬のタブのときだけ意味がある。 */
+function isSyringe() {
+  return mode === "medicine" && val("doseKind") === "syringe";
+}
+
+/**
+ * 薬の種類を変えたとき。
+ *
+ * 🔴 <b>注射器は道具、薬は打たれるもの。</b> 出す欄が変わる。
+ */
+function doseKindChanged() {
+  const box = document.getElementById("doseHint");
+  if (box) {
+    box.innerHTML = isSyringe()
+      ? "🔴 <b>これ自体は効きません。</b>打つ道具です。"
+        + "持ち物の中の薬を1つ減らして、相手に効果を移します。<br>"
+        + "⚠️ <b>やりの形になります。</b>相手を右クリックで打ちます。"
+        + "自分には打てません"
+      : "🔴 <b>打たれると効果が出ます。</b>効果は下の欄で決めてください。<br>"
+        + "⚠️ <b>医師が持ち物の左から順に探して使います。</b>"
+        + "並び替えで、どれを使うかを決められます";
+  }
+  setMode("medicine");
+}
+
 /** いま選ばれている武器種。⚠️ 何も無ければ剣。 */
 function baseId() {
   return val("base") || "sword";
@@ -3502,6 +3581,11 @@ function fromGoods(g) {
     document.getElementById("toughness").value = g.toughness || 0;
     document.getElementById("durability").value = g.durability || 0;
     picked = (g.enchants || []).slice();
+  } else if (cat === "medicine") {
+    document.getElementById("doseKind").value = g.syringe ? "syringe" : "dose";
+    document.getElementById("bedOnly").checked = !!g.bedOnly;
+    if (g.syringe) { document.getElementById("durability").value = g.durability || 0; }
+    doseKindChanged();
   } else if (cat === "clothes") {
     document.getElementById("wear").value = g.wear || "chest";
     document.getElementById("layer").value = g.layer || 0;
