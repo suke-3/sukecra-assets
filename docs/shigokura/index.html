@@ -227,6 +227,32 @@
     </select>
     <span class="hint">⚠️ 石は 1.5、鉄ブロックは 5.0</span>
   </div>
+  <div class="row only-block" style="display:none">
+    <label>明るさ</label>
+    <select id="glow" onchange="render()">
+      <option value="0">光らない</option>
+      <option value="1">ほんのり（松明の半分くらい）</option>
+      <option value="2">明るい（松明より少し暗い）</option>
+      <option value="3">とても明るい（グロウストーンと同じ）</option>
+    </select>
+    <span class="hint">⚠️ <b>ほんのりでも敵は湧かなくなります。</b>暗い場所に置くと明かりの代わりになります</span>
+  </div>
+  <div class="row only-block" style="display:none">
+    <label>透ける</label>
+    <input type="checkbox" id="seethru" onchange="render()">
+    <span class="hint">
+      ガラスのように<b>光と向こう側を通す</b>ようになります。
+      ⚠️ <b>家具は指定しなくても必ず透けます</b>（塞ぐと隣のブロックの面が消えるため）
+    </span>
+  </div>
+  <div class="row only-furniture" style="display:none">
+    <label>座れる</label>
+    <input type="checkbox" id="sit" onchange="render()">
+    <label style="min-width:74px">座面の高さ</label>
+    <input type="number" id="sitHeight" value="0.5" min="0.05" max="1" step="0.05"
+           oninput="render()">
+    <span class="hint">⚠️ 手ぶらで右クリックで座ります。椅子は 0.5、座布団は 0.15 くらい</span>
+  </div>
   <div class="row">
     <label>かかる時間</label>
     <input type="number" id="seconds" value="10" min="0" max="600" oninput="render()">
@@ -336,6 +362,20 @@ let mode = "food";
  * ⚠️ <b>画面の文字を全部「料理」にしない。</b> 建材を作っているのに
  * 「新しい料理」と出ていると、<b>間違ったタブにいるのか不安になる</b>。
  */
+/*
+ * タブと品目の対応。
+ *
+ * 🔴 品目は枠を数える単位（サーバーの categories.json と同じ名前にする）。
+ * ⚠️ 中間素材は枠を使わないが、書き出しの形をそろえるために入れてある。
+ */
+const CATEGORY = { food: "food", block: "block", furniture: "furniture", material: "food" };
+
+/** 品目 → タブ。⚠️ 読み込みのときに使う。 */
+const MODE_OF = { food: "food", block: "block", furniture: "furniture" };
+
+/** 置けるもの。⚠️ サーバーの categories.json の block と揃えること。 */
+const PLACEABLE = ["block", "furniture"];
+
 const WORD = { food: "料理", block: "建材", furniture: "家具",
                material: "中間素材" };
 const word = () => WORD[mode];
@@ -1505,6 +1545,11 @@ function addEffect(kind) {
 //  書き出し
 // ══════════════════════════════════════════════════════════════
 const val = id => document.getElementById(id).value;
+/** チェックが入っているか。⚠️ まだ画面に無い欄でも落とさない。 */
+const on = id => {
+  const e = document.getElementById(id);
+  return !!(e && e.checked);
+};
 
 
 const text = (t, c) => c ? { text:t, color:c, italic:false } : { text:t, italic:false };
@@ -1522,7 +1567,9 @@ const text = (t, c) => c ? { text:t, color:c, italic:false } : { text:t, italic:
 function goods() {
   const g = {
     id: val("id").trim(),
-    kind: "item",
+    // 🔴 品物に書く種類は品目だけ（2026-08-23）。持ち物か置けるかは
+    //    サーバー側の categories.json から決まるので、こちらでは書かない
+    category: CATEGORY[mode],
     job: val("job"),
     owner: val("owner").trim(),
     name: val("name"),
@@ -1534,9 +1581,18 @@ function goods() {
       .map(i => ({ item: i.item, count: i.count || 1 })),
   };
   if (!twoSided()) {
-    g.kind = "block";
     g.hardness = Number(val("hardness")) || 1.5;
     g.sound = val("sound");
+    // 🔴 明るさと透過は置いたときに決まる（裁定 2026-08-23・建築家）。
+    //    ⚠️ 置いたあとに変えても、すでに置いてあるものは変わらない
+    g.glow = Number(val("glow")) || 0;
+    g.clear = on("seethru");
+    if (mode === "furniture") {
+      // 🔴 当たり判定の箱。⚠️ これが無いと、削れた見た目のまま立方体に当たる
+      g.boxes = shapeBoxes();
+      g.sit = on("sit");
+      if (g.sit) { g.sitHeight = Number(val("sitHeight")) || 0.5; }
+    }
   } else if (mode === "material") {
     // 🔴 中間素材は運営が足すもの。誰でも作れて、枠も使わない
     g.open = true;
@@ -1692,6 +1748,23 @@ function furnitureModel(id) {
   };
 }
 
+/**
+ * 当たり判定の箱。
+ *
+ * 🔴 <b>1箱6つの数（x1,y1,z1,x2,y2,z2）を、0〜16 の目盛りで並べる。</b>
+ * サーバーがそのまま読み、入ってきた人へ送る。
+ *
+ * ⚠️ <b>上下がひっくり返る。</b> 絵は上から数え、ゲームは下から数えるので、
+ * モデルの作り方（{@link furnitureModel}）と同じ直し方をする。
+ */
+function shapeBoxes() {
+  const out = [];
+  mergeVoxels().boxes.forEach(b => {
+    out.push(b.x, N - 1 - b.y2, b.z, b.x2 + 1, N - b.y, b.z2 + 1);
+  });
+  return out;
+}
+
 /** 家具の箱の数。⚠️ 多いほど置いたときに重くなる。 */
 function furnitureBoxes() {
   return mode === "furniture" ? mergeVoxels().boxes.length : 0;
@@ -1748,9 +1821,10 @@ function voxelPolys(cx, cy, scale) {
   return polys;
 }
 
-function blockstate() {
-  return { variants: { "": { model: "sukecra:block/" + val("id").trim() } } };
-}
+// 🔴 置き方の指定（blockstate）は書き出さない（2026-08-23）。
+//    置いたブロックの正体は枠（sukecra:block_◯）で、その置き方は土台MODが
+//    ぜんぶ用意している。こちらから同じ名前のものを配ると、
+//    ⚠️ 明るさと透過のぶんの指定を上書きして消してしまう。
 
 
 /**
@@ -1955,13 +2029,11 @@ function saveAll() {
   if (mode === "furniture") {
     // 🔴 家具は「色を並べただけの絵」を1枚。面ごとの絵は要らない
     pngBlob(paletteGrid(), b => download(id + ".png", b));
-    download(id + ".blockstate.json", JSON.stringify(blockstate(), null, 2));
   } else if (mode === "block") {
     // 🔴 建材は6面ぶん。名前は Minecraft の面の名前に揃える
     faces().forEach(([k]) => {
       pngBlob(sides[k], b => download(id + "_" + k + ".png", b));
     });
-    download(id + ".blockstate.json", JSON.stringify(blockstate(), null, 2));
   } else {
     pngBlob(sides.front, b => download(id + ".png", b));
     pngBlob(sides.back, b => download(id + "_back.png", b));
@@ -1971,20 +2043,12 @@ function saveAll() {
     "保存しました。\n\n" +
     "🔴 描いた絵はインターネットに公開されます。\n" +
     "   他人の絵や、個人が分かるものを入れないでください。\n\n" +
-    "置き場所は2か所に分かれます。\n\n" +
-    "【サーバーに置く】レシピの1つだけ\n" +
-    "  " + id + ".json → world/datapacks/sukecra-food/data/sukecra/recipe/\n\n" +
-    "【自分のPCに置く】絵。サーバーではありません\n" +
-    "  resourcepacks/sukecra-food/assets/sukecra/ の下\n" +
-    "  " + id + ".png        → textures/item/" + id + ".png\n" +
-    (twoSided() ? "  " + id + "_back.png   → textures/item/" + id + "_back.png\n" : "") +
-    "  " + id + ".model.json → models/item/" + id + ".json\n" +
-    "  " + id + ".item.json  → items/" + id + ".json\n\n" +
-    "⚠️ 後ろ2つは .model / .item を外した名前に変えてください。\n" +
-    "⚠️ 見た目は見る人のPCが持ちます。絵は全員に配らないと見えません。\n\n" +
-    "【入れたあと】\n" +
-    "  1. /reload\n" +
-    "  2. /recipe give @a *   ← レシピ帳に載せるため"
+    "【やること】保存したファイルを、そのまま全部そろえて運営に渡してください。\n" +
+    "⚠️ ファイル名は変えないでください。名前で置き場所を見分けています。\n\n" +
+    "【運営がやること】\n" +
+    "  1. inbox にそのまま入れる\n" +
+    "  2. python resourcepacks/publish.py --apply\n\n" +
+    "⚠️ 見た目は見る人のPCが持ちます。絵が配られるまでゲームには出ません。"
   ), 400);
 }
 
@@ -2031,10 +2095,16 @@ function fromGoods(g) {
   document.getElementById("owner").value = g.owner || "";
   document.getElementById("job").value = g.job || "cook";
   document.getElementById("seconds").value = g.seconds || 0;
-  setMode(g.kind === "block" ? "block" : "food");
-  if (g.kind === "block") {
+  // ⚠️ 昔の定義には kind しか無いので、そのときは kind から拾う
+  const cat = g.category || (g.kind === "block" ? "block" : "food");
+  setMode(MODE_OF[cat] || "food");
+  if (PLACEABLE.includes(cat)) {
     document.getElementById("hardness").value = g.hardness || 1.5;
     document.getElementById("sound").value = g.sound || "stone";
+    document.getElementById("glow").value = g.glow || 0;
+    document.getElementById("seethru").checked = !!g.clear;
+    document.getElementById("sit").checked = !!g.sit;
+    document.getElementById("sitHeight").value = g.sitHeight || 0.5;
   } else {
     document.getElementById("nutrition").value = g.nutrition || 0;
     document.getElementById("saturation").value = g.saturation || 0;
