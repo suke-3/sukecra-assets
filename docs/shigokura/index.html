@@ -286,7 +286,7 @@
   </div>
   <div class="row only-armor" style="display:none">
     <label>着るところ</label>
-    <select id="armorWear" onchange="drawEnchants(); render()">
+    <select id="armorWear" onchange="armorWearChanged()">
       <option value="head">頭</option>
       <option value="chest" selected>胴</option>
       <option value="legs">脚</option>
@@ -297,7 +297,9 @@
     <label style="min-width:48px">強度</label>
     <input type="number" id="toughness" value="0" min="0" max="3" step="0.5"
            oninput="render()">
-    <span class="hint">⚠️ ダイヤの胴が防御力8／ネザライトの強度は3</span>
+    <span class="hint">⚠️ ダイヤの胴が防御力8／ネザライトの強度は3<br>
+      🔴 <b>左右は片方だけ描きます。</b>反対側は自動で鏡写しになります<br>
+      ⚠️ <b>持ち物の中の小さい絵は、着たときの絵から切り出して作ります</b></span>
   </div>
   <div class="row only-gear" style="display:none">
     <label>耐久</label>
@@ -560,8 +562,15 @@ const DPS_CAP = 12.8;
 /** 上限にあたる武器。⚠️ 説明に出す。 */
 const DPS_CAP_NAME = "ネザライトの剣";
 
-/** 体を描くタブか（洋服・スキン）。 */
-const isSkin = () => (mode === "clothes" || mode === "skin");
+/**
+ * 体を描くタブか（洋服・スキン・防具）。
+ *
+ * 🔴 <b>防具の「着たときの絵」も同じ 64×64 に描く</b>（2026-08-24）。
+ * ⚠️ <b>バニラの防具の絵は 64×32</b>だが、<b>並びは 64×64 の内側とぴったり同じ</b>
+ * （頭 (0,0)／脚 (0,16)／胴 (16,16)／腕 (40,16)。26.2 の絵を読んで確かめた）。
+ * <b>だから上半分を切り出せばそのまま防具の絵になる</b>。
+ */
+const isSkin = () => (mode === "clothes" || mode === "skin" || mode === "armor");
 
 /** 絵そのものの広さ。⚠️ 洋服は 64×64 を1枚だけ持つ。 */
 const sheetW = () => isSkin() ? SKIN : gw();
@@ -796,9 +805,19 @@ let auto = { south:true, east:true, west:true, up:true, down:true };
 
 const blank = () => Array.from({length:sheetH()}, () => Array(sheetW()).fill(null));
 
-/** いま塗っている絵。⚠️ 洋服とスキンは1枚を分け合う。 */
+/**
+ * いま塗っている絵の入れものの名前。
+ *
+ * ⚠️ <b>タブごとに別の入れもの。</b> 洋服を描いてから防具のタブへ行っても、
+ * <b>洋服の絵が消えない</b>ようにするため。
+ */
+function sheetKey() {
+  return (mode === "skin") ? "skinFull" : (mode === "armor") ? "armor" : "skin";
+}
+
+/** いま塗っている絵。⚠️ 洋服・スキン・防具は1枚を分け合う。 */
 function sheet() {
-  return sides[mode === "skin" ? "skinFull" : "skin"];
+  return sides[sheetKey()];
 }
 
 let sides = { front: blank(), back: blank() };
@@ -1049,7 +1068,27 @@ function setTool(t) {
     k => document.getElementById("t-"+k).classList.toggle("on", k===t));
 }
 
-function faces() { return SIDE_SET[mode]; }
+/**
+ * 防具の部位タブ。
+ *
+ * 🔴 <b>着るところで塗る場所が変わる</b>（26.2 の防具の絵の並び）。
+ * ⚠️ <b>左右は分けない。</b> 防具の絵は<b>片側だけ描いて、反対側は鏡写しになる</b>
+ * （64×32 に左腕・左脚の場所が無いため）。
+ *
+ * ⚠️ <b>脚の防具だけ別の絵になる</b>（{@code humanoid_leggings}）。
+ * 胴と重ならないよう、ゲーム側が少し細く描く。
+ */
+const ARMOR_SIDES = {
+  head:  [["head", "頭"]],
+  chest: [["body", "胴"], ["arm_r", "腕"]],
+  legs:  [["body", "腰"], ["leg_r", "脚"]],
+  feet:  [["leg_r", "足"]]
+};
+
+function faces() {
+  if (mode === "armor") { return ARMOR_SIDES[val("armorWear")] || ARMOR_SIDES.chest; }
+  return SIDE_SET[mode];
+}
 
 /**
  * 奥行きのつまみ。
@@ -1126,7 +1165,8 @@ function drawSideRow() {
     row.appendChild(b);
   });
   // 🔴 内側と外側の切り替え。⚠️ 部位のタブとは別の軸なので、まとめて出さない
-  if (isSkin()) {
+  // ⚠️ 防具に外側は無い。64×32 に外側の場所が入っていない
+  if (isSkin() && mode !== "armor") {
     const t = document.createElement("button");
     t.className = "small" + (outerLayer ? " on" : "");
     t.textContent = outerLayer ? "外側（上着）" : "内側（下着）";
@@ -1207,8 +1247,10 @@ function setMode(m) {
   if (!faces().some(([k]) => k === side)) { side = faces()[0][0]; }
   if (isSkin()) {
     // 🔴 部位のタブは1枚の 64×64 を分けて見ているだけ。入れものは1つ
-    const key = (m === "skin") ? "skinFull" : "skin";
+    const key = sheetKey();
     if (!sides[key] || sides[key].length !== SKIN) { sides[key] = blank(); }
+    // 🔴 防具に外側は無い。切り替えたまま来ると、消えた絵を塗ることになる
+    if (m === "armor") { outerLayer = false; }
   } else {
     faces().forEach(([k]) => {
       // ⚠️ 広さが食い違っていたら作り直す。旗は 20×40、ほかは 16×16
@@ -1296,9 +1338,9 @@ function setMode(m) {
  * 「別の絵にするか」を毎回聞く意味がない。裏は表の写しから始まる。
  */
 function twoSided() {
-  // ⚠️ 持ち物の絵はどれも表と裏。武器と防具も同じ作り
-  return mode === "food" || mode === "material"
-      || mode === "weapon" || mode === "armor";
+  // ⚠️ 持ち物の絵はどれも表と裏。武器も同じ作り
+  // 🔴 防具はここに入らない。着たときの絵から持ち物の絵を切り出すため（2026-08-24）
+  return mode === "food" || mode === "material" || mode === "weapon";
 }
 
 /** 🔴 裏は「表の写し」から始める。まっさらから描き直させない。 */
@@ -1808,7 +1850,7 @@ function bodyPolys(cx, cy, scale) {
   // 🔴 塗っていないところにも下じきを出す。出さないと
   //    ⚠️ 前しか塗っていないとき、横から見て何も無く「壊れている」に見える
   //    洋服＝素肌のつもりの灰色、スキン＝まだ塗っていない印の暗い色
-  const skinBase = (mode === "clothes") ? "#4a4a52" : "#2b2f36";
+  const skinBase = (mode === "clothes" || mode === "armor") ? "#4a4a52" : "#2b2f36";
   const MID = 16;   // 体のまん中（回す軸）
 
   Object.keys(SKIN_PART).forEach(key => {
@@ -2920,6 +2962,20 @@ function enchantFits(where) {
   return where === val("armorWear");
 }
 
+/**
+ * 着るところを変えたとき。
+ *
+ * 🔴 <b>塗る場所も変わる</b>ので、タブを作り直して、いま見ている部位を確かめ直す。
+ * ⚠️ <b>やらないと、足の防具のまま胴を塗る</b>ことになる。
+ */
+function armorWearChanged() {
+  if (!faces().some(([k]) => k === side)) { side = faces()[0][0]; }
+  drawSideRow();
+  drawPaint();
+  drawEnchants();
+  render();
+}
+
 /** いま選ばれている武器種。⚠️ 何も無ければ剣。 */
 function baseId() {
   return val("base") || "sword";
@@ -3127,6 +3183,20 @@ function showBaseHint() {
   box.innerHTML = html;
 }
 
+/**
+ * 防具の絵（64×32）。
+ *
+ * 🔴 <b>64×64 の上半分をそのまま切り出す。</b>
+ * 頭 (0,0)／脚 (0,16)／胴 (16,16)／腕 (40,16) の並びは、
+ * <b>バニラの防具の絵とぴったり同じ</b>（26.2 の絵を読んで確かめた）。
+ *
+ * ⚠️ <b>左腕と左脚は入らない。</b> ゲームが右のものを鏡写しにして使う。
+ */
+function armorGrid() {
+  const g = sheet();
+  return g.slice(0, 32).map(row => row.slice(0, SKIN));
+}
+
 function iconGrid() {
   const g = sheet();
   // 着るところ → 前から見て代表になるところ [内側, 外側]
@@ -3136,7 +3206,8 @@ function iconGrid() {
     legs:  [[4, 20, 4, 12], [4, 36, 4, 12]],
     feet:  [[4, 26, 4, 6], [4, 42, 4, 6]]
   };
-  const pair = CUT[val("wear")] || CUT.chest;
+  // ⚠️ 洋服は「着るところ」、防具は「着るところ（防具）」で欄が別
+  const pair = CUT[mode === "armor" ? val("armorWear") : val("wear")] || CUT.chest;
   // ⚠️ 何か描いてあるほうを選ぶ。両方あれば外側（上に見えるほう）
   const used = a => {
     for (let y = 0; y < a[3]; y++) {
@@ -3217,7 +3288,7 @@ function saveAll() {
   }
   download(id + ".json", JSON.stringify(goods(), null, 2));
   // ⚠️ 旗は見た目の指定を持たない。バニラの旗そのものになる
-  if (mode === "clothes") {
+  if (mode === "clothes" || mode === "armor") {
     // ⚠️ 持ち物の中では小さい絵を使う。着たときの絵とは別
     download(id + ".model.json", JSON.stringify({
       parent: "minecraft:item/generated",
@@ -3240,6 +3311,11 @@ function saveAll() {
     // 🔴 着たときの絵（スキンと同じ 64×64）
     pngBlob(sheet(), b => download(id + ".png", b));
     // 🔴 持ち物の中で見える小さい絵。⚠️ 服の絵から切り出して作る
+    pngBlob(iconGrid(), b => download(id + "_icon.png", b));
+  } else if (mode === "armor") {
+    // 🔴 防具の絵は 64×32。上半分がそのまま防具の並びになっている
+    pngBlob(armorGrid(), b => download(id + ".png", b));
+    // 🔴 持ち物の中で見える小さい絵。⚠️ 着たときの絵から切り出して作る
     pngBlob(iconGrid(), b => download(id + "_icon.png", b));
   } else if (mode === "furniture") {
     // 🔴 家具は「色を並べただけの絵」を1枚。面ごとの絵は要らない
@@ -3372,7 +3448,7 @@ function newDish() {
   Object.keys(sides).forEach(k => { delete sides[k]; });
   if (isSkin()) {
     // 🔴 洋服とスキンは1枚を分けて見ているだけ。部位ごとに作らない
-    sides[mode === "skin" ? "skinFull" : "skin"] = blank();
+    sides[sheetKey()] = blank();
   } else {
     faces().forEach(([k]) => { sides[k] = blank(); });
   }
