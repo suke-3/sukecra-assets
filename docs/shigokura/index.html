@@ -472,28 +472,58 @@ const SKIN_FACES = [
 ];
 
 /**
- * 着せ替え人形に出すところ。
+ * 体の箱の置き場所（Minecraft の人と同じ寸法）。
  *
- * 中身は [部位, 内か外か, 面, 置く左, 置く上]。
- * ⚠️ <b>後ろから見ると左右が入れ替わる。</b>
+ * ⚠️ <b>y は下向き。</b> 頭のてっぺんが 0、足の裏が 32。
+ * ⚠️ <b>-x が「その人の右」</b>――向かい合うとこちらの左に見える。
+ * ⚠️ <b>-z が前。</b> 顔の向いているほう。
  */
-const DOLL = [
-  ["head", "前", 4, 0], ["body", "前", 4, 8],
-  ["arm_r", "前", 0, 8], ["arm_l", "前", 12, 8],
-  ["leg_r", "前", 4, 20], ["leg_l", "前", 8, 20]
-];
-
-const DOLL_BACK_POS = {
-  head: [4, 0], body: [4, 8], arm_r: [12, 8], arm_l: [0, 8],
-  leg_r: [8, 20], leg_l: [4, 20]
+const BODY_BOX = {
+  head:  { x:-4, y:0,  z:-4, w:8, h:8,  d:8 },
+  body:  { x:-4, y:8,  z:-2, w:8, h:12, d:4 },
+  arm_r: { x:-8, y:8,  z:-2, w:4, h:12, d:4 },
+  arm_l: { x:4,  y:8,  z:-2, w:4, h:12, d:4 },
+  leg_r: { x:-4, y:20, z:-2, w:4, h:12, d:4 },
+  leg_l: { x:0,  y:20, z:-2, w:4, h:12, d:4 }
 };
+
+/**
+ * 箱をひらいたときの、6つの面の取り方。
+ *
+ * 🔴 <b>絵のどこが、立体のどの面か。</b> ここを間違えると、
+ * 顔が横についたり、左右が入れ替わったりする。
+ *
+ * 中身は 呼び名／向き／明るさ と、
+ * <b>絵の中の場所</b>（幅・高さ・奥ゆきから出す）と
+ * <b>立体の中の場所</b>（始まりの点と、横・縦の進む向き）。
+ */
+const BODY_FACES = [
+  { name:"前", n:[0,0,-1], light:1.00,
+    uv: (w,h,d) => [d, d, w, h],
+    at: (b) => ({ o:[b.x, b.y, b.z],           u:[1,0,0],  v:[0,1,0] }) },
+  { name:"後", n:[0,0,1], light:0.72,
+    uv: (w,h,d) => [d + w + d, d, w, h],
+    at: (b) => ({ o:[b.x+b.w, b.y, b.z+b.d],   u:[-1,0,0], v:[0,1,0] }) },
+  { name:"右", n:[-1,0,0], light:0.82,
+    uv: (w,h,d) => [0, d, d, h],
+    at: (b) => ({ o:[b.x, b.y, b.z+b.d],       u:[0,0,-1], v:[0,1,0] }) },
+  { name:"左", n:[1,0,0], light:0.82,
+    uv: (w,h,d) => [d + w, d, d, h],
+    at: (b) => ({ o:[b.x+b.w, b.y, b.z],       u:[0,0,1],  v:[0,1,0] }) },
+  { name:"上", n:[0,-1,0], light:0.95,
+    uv: (w,h,d) => [d, 0, w, d],
+    at: (b) => ({ o:[b.x, b.y, b.z+b.d],       u:[1,0,0],  v:[0,0,-1] }) },
+  { name:"下", n:[0,1,0], light:0.60,
+    uv: (w,h,d) => [d + w, 0, w, d],
+    at: (b) => ({ o:[b.x, b.y+b.h, b.z],       u:[1,0,0],  v:[0,0,1] }) }
+];
 
 /** その部位・その層・その面が、絵のどこにあるか。 */
 function faceRect(key, outer, faceName) {
   const p = SKIN_PART[key];
   const o = outer ? p.out : p.inn;
-  const f = SKIN_FACES.find(x => x[0] === faceName);
-  const [dx, dy, w, h] = f[2](p.w, p.h, p.d);
+  const f = BODY_FACES.find(x => x.name === faceName);
+  const [dx, dy, w, h] = f.uv(p.w, p.h, p.d);
   return [o[0] + dx, o[1] + dy, w, h];
 }
 
@@ -1017,7 +1047,8 @@ function setMode(m) {
       "絵（" + gw() + "×" + gh() + "）";
   // ⚠️ 旗は回しても変わらない。押せると「壊れている」と思われる
   // 🔴 洋服と旗は回らない。回せると書いてあるのに回らないのがいちばん困る
-  const flat2d = (m === "hata" || isSkin());
+  // ⚠️ 平面なのは旗だけ。洋服とスキンは立体で回せる
+  const flat2d = (m === "hata");
   ["spin", "viewHand", "dragHint"].forEach(k => {
     const e = document.getElementById(k);
     if (e) { e.style.display = flat2d ? "none" : ""; }
@@ -1292,8 +1323,19 @@ function drawViewFaces() {
   if (!box) { return; }
   box.innerHTML = "";
   if (mode === "furniture") { return; }   // ⚠️ 家具は面が無いので出さない
-  // ⚠️ 洋服は前と後ろを並べて出しているので、選ばせるものが無い
-  if (isSkin()) { return; }
+  // 🔴 洋服とスキンは「どの向きから見るか」。部位のタブとは別ものなので、
+  //    面の名前ではなく向きの名前で出す
+  if (isSkin()) {
+    [["north","前"], ["south","後"], ["west","右"], ["east","左"],
+     ["up","上"], ["down","下"]].forEach(([key, label]) => {
+      const b = document.createElement("button");
+      b.className = "small";
+      b.textContent = label;
+      b.onclick = () => setView(key);
+      box.appendChild(b);
+    });
+    return;
+  }
   faces().forEach(([key, label]) => {
     const b = document.createElement("button");
     b.className = "small";
@@ -1441,46 +1483,75 @@ function cubePolys(cx, cy, scale) {
  * <b>どのマスを塗ったのか分からなくなる</b>。まっすぐ出す。
  */
 /**
- * 着せ替え人形。
+ * 人の立体。
  *
- * 🔴 <b>前と後ろを並べて出す</b>（2026-08-23）。切り替えにすると、
- * <b>片方しか見えないので「動いていない」ように見える</b>。
+ * 🔴 <b>横も上下も確かめられるようにする</b>（人間の指示 2026-08-23）。
+ * 前と後ろを並べるだけでは、袖の外側や靴の裏が見えない。
  *
- * ⚠️ <b>塗っていないところは素肌が出る。</b> 灰色の人形で表す。
+ * ⚠️ <b>1マスずつ四角を置く。</b> 面の絵をそのまま貼る道具が無いので、
+ * <b>塗ったマスの数だけ</b>置く。⚠️ <b>透明なマスは置かない</b>ので、
+ * 外側（上着）を描いていなければ、そのぶんは何も増えない。
+ *
+ * ⚠️ <b>洋服のときは、塗っていないところに素肌を出す。</b>
+ * 出さないと服だけが宙に浮いて見える。
  */
-function drawDoll() {
+function bodyPolys(cx, cy, scale) {
   const g = sheet();
-  // ⚠️ 切り替えの途中で呼ばれても落ちないようにする
-  if (!g || g.length < SKIN) { return; }
-  const C = Math.min((solid.width - 30) / 34, (solid.height - 30) / 34);
-  const top = 20;
-  [false, true].forEach((back, i) => {
-    const x0 = 8 + i * 18 * C;
-    // 素肌（下じき）
-    sctx.fillStyle = "#4a4a52";
-    [[4,0,8,8], [4,8,8,12], [0,8,4,12], [12,8,4,12], [4,20,4,12], [8,20,4,12]]
-        .forEach(r => sctx.fillRect(x0 + r[0]*C, top + r[1]*C, r[2]*C, r[3]*C));
-    // 服（内側 → 外側の順に重ねる）
-    Object.keys(SKIN_PART).forEach(key => {
-      const pos = back ? DOLL_BACK_POS[key] : DOLL.find(d => d[0] === key).slice(2);
-      [false, true].forEach(outer => {
-        const [sx, sy, w, h] = faceRect(key, outer, back ? "後" : "前");
-        for (let y = 0; y < h; y++) {
-          for (let x = 0; x < w; x++) {
-            const col = g[sy+y][sx+x];
-            if (!col) { continue; }
-            // ⚠️ 後ろから見ると左右が入れ替わる
-            const px = back ? (w - 1 - x) : x;
-            sctx.fillStyle = col;
-            sctx.fillRect(x0 + (pos[0]+px)*C, top + (pos[1]+y)*C, C + 0.5, C + 0.5);
+  const polys = [];
+  if (!g || g.length < SKIN) { return polys; }
+  // 🔴 塗っていないところにも下じきを出す。出さないと
+  //    ⚠️ 前しか塗っていないとき、横から見て何も無く「壊れている」に見える
+  //    洋服＝素肌のつもりの灰色、スキン＝まだ塗っていない印の暗い色
+  const skinBase = (mode === "clothes") ? "#4a4a52" : "#2b2f36";
+  const MID = 16;   // 体のまん中（回す軸）
+
+  Object.keys(SKIN_PART).forEach(key => {
+    [false, true].forEach(outer => {
+      const p = SKIN_PART[key];
+      const org = outer ? p.out : p.inn;
+      const grow = outer ? 0.6 : 0;
+      const box = BODY_BOX[key];
+      const b = { x: box.x - grow, y: box.y - grow, z: box.z - grow,
+                  w: box.w + grow*2, h: box.h + grow*2, d: box.d + grow*2 };
+
+      BODY_FACES.forEach(f => {
+        // 外を向いている面だけ描く。⚠️ 向こう向きは手前に隠れる
+        if (rot(f.n)[2] >= 0) { return; }
+        const [ux, uy, fw, fh] = f.uv(p.w, p.h, p.d);
+        const { o, u, v } = f.at(b);
+        for (let j = 0; j < fh; j++) {
+          for (let i = 0; i < fw; i++) {
+            let col = g[org[1] + uy + j][org[0] + ux + i];
+            if (!col) {
+              // ⚠️ 外側（上着）は透明ならそのまま。下じきを出すのは内側だけ
+              if (outer) { continue; }
+              col = skinBase;
+            }
+            const pts = [[0,0],[1,0],[1,1],[0,1]].map(([a2, b2]) => {
+              const uu = (i + a2) / fw, vv = (j + b2) / fh;
+              // u と v の伸びる長さは、その向きの箱の寸法
+              const lenU = Math.abs(u[0]) * b.w + Math.abs(u[1]) * b.h
+                         + Math.abs(u[2]) * b.d;
+              const lenV = Math.abs(v[0]) * b.w + Math.abs(v[1]) * b.h
+                         + Math.abs(v[2]) * b.d;
+              const q = rot([
+                o[0] + u[0]*uu*lenU + v[0]*vv*lenV,
+                o[1] + u[1]*uu*lenU + v[1]*vv*lenV - MID,
+                o[2] + u[2]*uu*lenU + v[2]*vv*lenV
+              ]);
+              return [cx + q[0]*scale, cy + q[1]*scale, q[2]];
+            });
+            polys.push({
+              pts,
+              depth: (pts[0][2]+pts[1][2]+pts[2][2]+pts[3][2])/4,
+              fill: shade(col, f.light)
+            });
           }
         }
       });
     });
-    sctx.fillStyle = "#cfd3da";
-    sctx.font = "12px sans-serif";
-    sctx.fillText(back ? "後ろ" : "前", x0 + 5*C, 14);
   });
+  return polys;
 }
 
 function drawHata() {
@@ -1520,7 +1591,8 @@ function draw3D() {
     return;
   }
   if (isSkin()) {
-    drawDoll();
+    // ⚠️ 人は 32 マスぶんの高さ。立方体（16）の半分の大きさに合わせる
+    drawPolys(bodyPolys(cx, cy, scale * 0.5), cx, cy);
     return;
   }
 
@@ -2386,13 +2458,16 @@ function render() {
     ? "🔴 <b>自分のスキンを描くところです。</b>品物にはなりません。<br>" +
       "⚠️ <b>部位のタブと「内側／外側」で塗り分けます。</b>外側は帽子や上着の層です。<br>" +
       "⚠️ <b>「一式を保存」で skin.png が出ます。</b>Minecraft の設定から入れてください。<br>" +
-      "⚠️ <b>目印の色は向きです。</b>青＝前、紫＝後、緑＝右、橙＝左、黄＝上、赤＝下。"
+      "⚠️ <b>プレビューの暗いところは、まだ塗っていないところです。</b><br>" +
+      "⚠️ <b>目印の色は向きです。</b>青＝前、紫＝後、緑＝右、橙＝左、黄＝上、赤＝下。<br>" +
+      "⚠️ <b>右のプレビューはドラッグで回せます。</b>横も上下も確かめられます。"
     : (mode === "clothes")
     ? "🔴 <b>並びはスキンと同じ 64×64 です。</b>頭・胴・腕・脚がこの1枚に入っています。<br>" +
       "⚠️ <b>塗っていないところは素肌や防具が透けます。</b>着たいところだけ塗ってください。<br>" +
       "⚠️ <b>「濃さ」を下げると、うっすら透ける服になります。</b><br>" +
       "🔴 <b>防御力はありません。</b>見た目だけで、防具の上から重なります。<br>" +
-      "⚠️ <b>目印の色は向きです。</b>青＝前、紫＝後、緑＝右、橙＝左、黄＝上、赤＝下。"
+      "⚠️ <b>目印の色は向きです。</b>青＝前、紫＝後、緑＝右、橙＝左、黄＝上、赤＝下。<br>" +
+      "⚠️ <b>右のプレビューはドラッグで回せます。</b>横も上下も確かめられます。"
     : (mode === "hata")
     ? "🔴 <b>できあがるのは本物の旗です。</b>揺れますし、盾にも付けられます。<br>" +
       "⚠️ <b>絵の広さは 20×40。</b>旗の面の大きさに合わせてあります。<br>" +
