@@ -136,6 +136,8 @@
       <span class="spacer"></span>
       <button class="primary small" onclick="undo()">⟲ 元に戻す</button>
       <button class="small danger" id="clearBtn" onclick="clearAll()">全部消す</button>
+      <button class="small on only-clothes" id="guideBtn" style="display:none"
+              onclick="toggleGuide()">目印：出す</button>
     </div>
 
     <canvas id="paint" width="384" height="384"></canvas>
@@ -160,14 +162,14 @@
   </div>
 
   <div class="card">
-    <h3>立体プレビュー</h3>
+    <h3 id="previewTitle">立体プレビュー</h3>
     <canvas id="solid" width="340" height="300" style="cursor:grab;touch-action:none"></canvas>
     <div class="row" style="margin-top:10px">
-      <button class="small" onclick="setView('hand')">斜め</button>
+      <button class="small" id="viewHand" onclick="setView('hand')">斜め</button>
       <span id="viewFaces"></span>
       <button id="spin" class="small on" onclick="toggleSpin()">回す</button>
     </div>
-    <p class="hint">ドラッグで好きな向きに回せます。動かすと自動で回るのが止まります。</p>
+    <p class="hint" id="dragHint">ドラッグで好きな向きに回せます。動かすと自動で回るのが止まります。</p>
     <p class="hint bad" id="overflow"></p>
     <p class="hint" id="boxes"></p>
     <p class="hint" id="solidHint"></p>
@@ -234,7 +236,7 @@
     </select>
     <span class="hint">⚠️ 石は 1.5、鉄ブロックは 5.0</span>
   </div>
-  <div class="row only-block" style="display:none">
+  <div class="row only-glow" style="display:none">
     <label>明るさ</label>
     <select id="glow" onchange="render()">
       <option value="0">光らない</option>
@@ -242,7 +244,7 @@
       <option value="2">明るい（松明より少し暗い）</option>
       <option value="3">とても明るい（グロウストーンと同じ）</option>
     </select>
-    <span class="hint">⚠️ <b>ほんのりでも敵は湧かなくなります。</b>暗い場所に置くと明かりの代わりになります</span>
+    <span class="hint" id="glowHint">⚠️ <b>ほんのりでも敵は湧かなくなります。</b>暗い場所に置くと明かりの代わりになります</span>
   </div>
   <div class="row only-block" style="display:none">
     <label>向こうが見える</label>
@@ -398,13 +400,41 @@ const SIDE_SET = {
  * 中身は [左, 上, 幅, 高さ, 呼び名]。
  */
 const SKIN_PARTS = [
-  [0, 0, 32, 16, "頭"],        [32, 0, 32, 16, "頭（外）"],
-  [16, 16, 24, 16, "胴"],      [16, 32, 24, 16, "胴（外）"],
-  [40, 16, 16, 16, "右腕"],    [40, 32, 16, 16, "右腕（外）"],
-  [32, 48, 16, 16, "左腕"],    [48, 48, 16, 16, "左腕（外）"],
-  [0, 16, 16, 16, "右脚"],     [0, 32, 16, 16, "右脚（外）"],
-  [16, 48, 16, 16, "左脚"],    [0, 48, 16, 16, "左脚（外）"]
+  // [左, 上, 幅, 高さ, 奥ゆき, 呼び名]
+  [0, 0, 8, 8, 8, "頭"],       [32, 0, 8, 8, 8, "頭（外）"],
+  [16, 16, 8, 12, 4, "胴"],    [16, 32, 8, 12, 4, "胴（外）"],
+  [40, 16, 4, 12, 4, "右腕"],  [40, 32, 4, 12, 4, "右腕（外）"],
+  [32, 48, 4, 12, 4, "左腕"],  [48, 48, 4, 12, 4, "左腕（外）"],
+  [0, 16, 4, 12, 4, "右脚"],   [0, 32, 4, 12, 4, "右脚（外）"],
+  [16, 48, 4, 12, 4, "左脚"],  [0, 48, 4, 12, 4, "左脚（外）"]
 ];
+
+/**
+ * 立方体をひらいたときの、6つの面の並び。
+ *
+ * 🔴 <b>ここを覚えていないと塗れない。</b> 絵の上に出す。
+ * 中身は [呼び名, 色, ずらす左, ずらす上, 幅の取り方, 高さの取り方]。
+ * ⚠️ <b>幅と高さは部位ごとに違う</b>ので、その場で当てはめる。
+ */
+const SKIN_FACES = [
+  ["上", "#ffd54a", (w,h,d) => [d, 0, w, d]],
+  ["下", "#ff8a65", (w,h,d) => [d + w, 0, w, d]],
+  ["右", "#7bd88f", (w,h,d) => [0, d, d, h]],
+  ["前", "#6cb6ff", (w,h,d) => [d, d, w, h]],
+  ["左", "#f2a25c", (w,h,d) => [d + w, d, d, h]],
+  ["後", "#c792ea", (w,h,d) => [d + w + d, d, w, h]]
+];
+
+/** 目印を出すか。⚠️ 仕上がりを見たいときに邪魔になるので消せるようにする。 */
+let showGuide = true;
+
+function toggleGuide() {
+  showGuide = !showGuide;
+  document.getElementById("guideBtn").classList.toggle("on", showGuide);
+  document.getElementById("guideBtn").textContent =
+      showGuide ? "目印：出す" : "目印：消す";
+  drawPaint();
+}
 
 /**
  * 前から見たときに出るところ。
@@ -898,6 +928,12 @@ function setMode(m) {
     e => e.style.display = (m === "furniture") ? "" : "none");
   document.querySelectorAll(".only-clothes").forEach(
     e => e.style.display = (m === "clothes") ? "" : "none");
+  // 🔴 明るさは建材・家具・洋服で使う
+  document.querySelectorAll(".only-glow").forEach(
+    e => e.style.display = (solid || m === "clothes") ? "" : "none");
+  document.getElementById("glowHint").innerHTML = (m === "clothes")
+    ? "⚠️ <b>暗いところでも光ったまま</b>になります。服そのものが明かりを出すわけではありません"
+    : "⚠️ <b>ほんのりでも敵は湧かなくなります。</b>暗い場所に置くと明かりの代わりになります";
   // ⚠️ 中間素材は料理人のもの。建築家にすると誰も作れなくなる
   // 🔴 旗は呉服屋のもの。ほかの職業にすると誰も作れなくなる
   document.getElementById("job").value =
@@ -907,10 +943,14 @@ function setMode(m) {
   document.getElementById("artTitle").textContent =
       "絵（" + gw() + "×" + gh() + "）";
   // ⚠️ 旗は回しても変わらない。押せると「壊れている」と思われる
-  const spinBtn = document.getElementById("spin");
-  if (spinBtn) {
-    spinBtn.style.display = (m === "hata" || m === "clothes") ? "none" : "";
-  }
+  // 🔴 洋服と旗は回らない。回せると書いてあるのに回らないのがいちばん困る
+  const flat2d = (m === "hata" || m === "clothes");
+  ["spin", "viewHand", "dragHint"].forEach(k => {
+    const e = document.getElementById(k);
+    if (e) { e.style.display = flat2d ? "none" : ""; }
+  });
+  document.getElementById("previewTitle").textContent =
+      (m === "clothes") ? "着たところ" : (m === "hata") ? "旗の見え方" : "立体プレビュー";
   document.getElementById("newBtn").textContent = "新しい" + word();
   document.getElementById("useWord").textContent = word();
   document.getElementById("cardTitle").textContent = word();
@@ -1104,14 +1144,23 @@ function drawPaint() {
       }
     }
   }
-  // 🔴 スキンの並びは覚えられない。どこが体のどこかを絵の上に出す
-  if (mode === "clothes") {
-    SKIN_PARTS.forEach(([x, y, w, h, name]) => {
-      pctx.strokeStyle = "#ffcc4488"; pctx.lineWidth = 1.5;
-      pctx.strokeRect(x*C, y*C, w*C, h*C);
-      pctx.fillStyle = "#ffcc44cc";
+  // 🔴 スキンの並びは覚えられない。どこが体のどこで、どの向きかを絵の上に出す
+  if (mode === "clothes" && showGuide) {
+    pctx.font = "9px sans-serif";
+    SKIN_PARTS.forEach(([ox, oy, w, h, d, name]) => {
+      SKIN_FACES.forEach(([label, tint, where]) => {
+        const [dx, dy, fw, fh] = where(w, h, d);
+        const x = (ox + dx) * C, y = (oy + dy) * C;
+        pctx.strokeStyle = tint + "cc"; pctx.lineWidth = 1.5;
+        pctx.strokeRect(x, y, fw*C, fh*C);
+        pctx.fillStyle = tint + "ee";
+        pctx.fillText(label, x + 2, y + 10);
+      });
+      // 部位の名前は左上に1つだけ。⚠️ 面ごとに出すと文字だらけになる
+      pctx.fillStyle = "#ffffffcc";
       pctx.font = "10px sans-serif";
-      pctx.fillText(name, x*C + 3, y*C + 11);
+      pctx.fillText(name, ox*C + 2, oy*C - 2);
+      pctx.font = "9px sans-serif";
     });
   }
   pctx.strokeStyle = "#8884"; pctx.lineWidth = 1;
@@ -1861,6 +1910,10 @@ function goods() {
     // 🔴 着るところと重ね順。⚠️ これが無いと胴の扱いになる
     g.wear = val("wear");
     g.layer = Number(val("layer")) || 0;
+    // 🔴 光る服（人間の希望 2026-08-23）。0 なら周りの明るさのまま
+    g.glow = Number(val("glow")) || 0;
+    // 🔴 薄い色を使ったら半透明で描く。⚠️ 立てないと薄い色が濃く出る
+    g.clear = on("seethru") || hasSeeThrough();
     return g;
   }
   if (!twoSided()) {
@@ -2232,7 +2285,8 @@ function render() {
     ? "🔴 <b>並びはスキンと同じ 64×64 です。</b>頭・胴・腕・脚がこの1枚に入っています。<br>" +
       "⚠️ <b>塗っていないところは素肌や防具が透けます。</b>着たいところだけ塗ってください。<br>" +
       "⚠️ <b>「濃さ」を下げると、うっすら透ける服になります。</b><br>" +
-      "🔴 <b>防御力はありません。</b>見た目だけで、防具の上から重なります。"
+      "🔴 <b>防御力はありません。</b>見た目だけで、防具の上から重なります。<br>" +
+      "⚠️ <b>目印の色は向きです。</b>青＝前、紫＝後、緑＝右、橙＝左、黄＝上、赤＝下。"
     : (mode === "hata")
     ? "🔴 <b>できあがるのは本物の旗です。</b>揺れますし、盾にも付けられます。<br>" +
       "⚠️ <b>絵の広さは 20×40。</b>旗の面の大きさに合わせてあります。<br>" +
@@ -2488,6 +2542,7 @@ function fromGoods(g) {
   } else if (cat === "clothes") {
     document.getElementById("wear").value = g.wear || "chest";
     document.getElementById("layer").value = g.layer || 0;
+    document.getElementById("glow").value = g.glow || 0;
   } else if (PLACEABLE.includes(cat)) {
     document.getElementById("hardness").value = g.hardness || 1.5;
     document.getElementById("sound").value = g.sound || "stone";
