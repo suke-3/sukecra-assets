@@ -81,6 +81,7 @@
   <button id="m-food" class="on" onclick="setMode('food')">🍜 料理</button>
   <button id="m-block" onclick="setMode('block')">🧱 建材</button>
   <button id="m-furniture" onclick="setMode('furniture')">🪑 家具</button>
+  <button id="m-hata" onclick="setMode('hata')">🚩 旗</button>
   <button id="m-material" onclick="setMode('material')" style="display:none">🧂 中間素材</button>
   <button id="newBtn" onclick="newDish()">新しい料理</button>
   <button onclick="document.getElementById('load').click()">読み込む</button>
@@ -120,7 +121,7 @@
 <div class="cols">
 
   <div class="card">
-    <h3>絵（16×16）</h3>
+    <h3 id="artTitle">絵（16×16）</h3>
 
     <div class="side" id="sideRow"></div>
     <div class="side only-furniture" id="depthRow" style="display:none"></div>
@@ -201,6 +202,7 @@
     <select id="job" onchange="render()">
       <option value="cook">料理人</option>
       <option value="builder">建築家</option>
+      <option value="tailor">呉服屋</option>
     </select>
     <span class="hint">⚠️ その職業に就いていないと作れません</span>
   </div>
@@ -326,6 +328,21 @@
 // ══════════════════════════════════════════════════════════════
 const N = 16;
 const CELL = 24;
+
+/**
+ * 絵の広さ。
+ *
+ * 🔴 <b>旗だけ 20×40</b>（2026-08-23）。Minecraft の旗の面がその大きさで、
+ * <b>ここを変えると絵が伸び縮みして出る</b>。
+ *
+ * ⚠️ <b>立体（家具）の 16×16×16 とは別。</b> あちらは N のまま。
+ */
+const HATA_W = 20;
+const HATA_H = 40;
+const gw = () => (mode === "hata") ? HATA_W : N;
+const gh = () => (mode === "hata") ? HATA_H : N;
+/** マスの大きさ。⚠️ 旗は縦に長いので小さめにしないと画面に入らない。 */
+const cell = () => (mode === "hata") ? 13 : CELL;
 /**
  * どの面を描いているか。
  *
@@ -340,7 +357,10 @@ const SIDE_SET = {
           ["up","上"], ["down","下"]],
   // 家具は建材と同じ6面。⚠️ 違うのは「深さ」を持てることだけ
   furniture: [["north","前"], ["south","後"], ["east","右"], ["west","左"],
-              ["up","上"], ["down","下"]]
+              ["up","上"], ["down","下"]],
+  // 🔴 旗は1面だけ。裏は自動で鏡写しにする（本物の旗と同じ）
+  // ⚠️ 名前を front にしない。料理の絵と同じ入れものになって、広さが食い違う
+  hata: [["flag","旗"]]
 };
 
 /**
@@ -374,16 +394,17 @@ let mode = "food";
  * 🔴 品目は枠を数える単位（サーバーの categories.json と同じ名前にする）。
  * ⚠️ 中間素材は枠を使わないが、書き出しの形をそろえるために入れてある。
  */
-const CATEGORY = { food: "food", block: "block", furniture: "furniture", material: "food" };
+const CATEGORY = { food: "food", block: "block", furniture: "furniture",
+                  material: "food", hata: "hata" };
 
 /** 品目 → タブ。⚠️ 読み込みのときに使う。 */
-const MODE_OF = { food: "food", block: "block", furniture: "furniture" };
+const MODE_OF = { food: "food", block: "block", furniture: "furniture", hata: "hata" };
 
 /** 置けるもの。⚠️ サーバーの categories.json の block と揃えること。 */
 const PLACEABLE = ["block", "furniture"];
 
 const WORD = { food: "料理", block: "建材", furniture: "家具",
-               material: "中間素材" };
+               material: "中間素材", hata: "旗" };
 const word = () => WORD[mode];
 
 /**
@@ -400,7 +421,7 @@ const word = () => WORD[mode];
  */
 let auto = { south:true, east:true, west:true, up:true, down:true };
 
-const blank = () => Array.from({length:N}, () => Array(N).fill(null));
+const blank = () => Array.from({length:gh()}, () => Array(gw()).fill(null));
 
 let sides = { front: blank(), back: blank() };
 let side = "front";
@@ -725,7 +746,8 @@ function drawSideRow() {
     b.onclick = () => setSide(key);
     row.appendChild(b);
   });
-  if (!twoSided()) {
+  // ⚠️ 旗は1面しかない。6面へ写す意味がない
+  if (!twoSided() && mode !== "hata") {
     const all = document.createElement("button");
     all.className = "small";
     all.textContent = "この絵を6面すべてに";
@@ -782,12 +804,18 @@ function setMode(m) {
   document.getElementById("m-block").classList.toggle("on", m === "block");
   document.getElementById("m-furniture").classList.toggle("on", m === "furniture");
   document.getElementById("m-material").classList.toggle("on", m === "material");
+  document.getElementById("m-hata").classList.toggle("on", m === "hata");
   const solid = (m === "block" || m === "furniture");
   // ⚠️ 中間素材は料理と同じ扱い。食べられなくてよいので、効果の欄は出さない
   const flat = (m === "food" || m === "material");
 
   // 足りない面を作る（すでにある面はそのまま）
-  faces().forEach(([k]) => { if (!sides[k]) { sides[k] = blank(); } });
+  faces().forEach(([k]) => {
+    // ⚠️ 広さが食い違っていたら作り直す。旗は 20×40、ほかは 16×16
+    if (!sides[k] || sides[k].length !== gh() || sides[k][0].length !== gw()) {
+      sides[k] = blank();
+    }
+  });
   if (!faces().some(([k]) => k === side)) { side = faces()[0][0]; }
 
   // 料理だけの欄・建材だけの欄を出し分ける
@@ -800,8 +828,16 @@ function setMode(m) {
   document.querySelectorAll(".only-furniture").forEach(
     e => e.style.display = (m === "furniture") ? "" : "none");
   // ⚠️ 中間素材は料理人のもの。建築家にすると誰も作れなくなる
-  document.getElementById("job").value = flat ? "cook" : "builder";
+  // 🔴 旗は呉服屋のもの。ほかの職業にすると誰も作れなくなる
+  document.getElementById("job").value =
+      (m === "hata") ? "tailor" : (flat ? "cook" : "builder");
   // ⚠️ 呼び名をそろえる。いまどれを作っているかが文字で分かるように
+  // ⚠️ 広さはタブで変わる。見出しに出さないと「なぜ縦長なのか」が分からない
+  document.getElementById("artTitle").textContent =
+      "絵（" + gw() + "×" + gh() + "）";
+  // ⚠️ 旗は回しても変わらない。押せると「壊れている」と思われる
+  const spinBtn = document.getElementById("spin");
+  if (spinBtn) { spinBtn.style.display = (m === "hata") ? "none" : ""; }
   document.getElementById("newBtn").textContent = "新しい" + word();
   document.getElementById("useWord").textContent = word();
   document.getElementById("cardTitle").textContent = word();
@@ -913,15 +949,15 @@ function undo() {
 function clearAll() {
   snapshot();
   if (twoSided() && side === "back") { copyFrontToBack(); }
-  else { sides[side] = Array.from({length:N}, () => Array(N).fill(null)); }
+  else { sides[side] = blank(); }
   drawPaint();
 }
 
 function cellAt(ev) {
   const r = paint.getBoundingClientRect();
-  const x = Math.floor((ev.clientX - r.left) / (r.width / N));
-  const y = Math.floor((ev.clientY - r.top) / (r.height / N));
-  return (x>=0 && y>=0 && x<N && y<N) ? [x,y] : null;
+  const x = Math.floor((ev.clientX - r.left) / (r.width / gw()));
+  const y = Math.floor((ev.clientY - r.top) / (r.height / gh()));
+  return (x>=0 && y>=0 && x<gw() && y<gh()) ? [x,y] : null;
 }
 
 function apply(x, y) {
@@ -941,7 +977,7 @@ function flood(g, x, y, from) {
   const stack = [[x,y]];
   while (stack.length) {
     const [cx,cy] = stack.pop();
-    if (cx<0||cy<0||cx>=N||cy>=N) { continue; }
+    if (cx<0||cy<0||cx>=gw()||cy>=gh()) { continue; }
     if (g[cy][cx] !== from) { continue; }
     g[cy][cx] = color;
     stack.push([cx+1,cy],[cx-1,cy],[cx,cy+1],[cx,cy-1]);
@@ -968,31 +1004,39 @@ paint.addEventListener("pointerleave", () => {
 function drawPaint() {
   const g = grid();
   const showDepth = (mode === "furniture");
+  const C = cell();
+  // ⚠️ 広さが変わるので、描く前に大きさを合わせる
+  if (paint.width !== gw()*C || paint.height !== gh()*C) {
+    paint.width = gw()*C; paint.height = gh()*C;
+    paint.style.width = (gw()*C) + "px";
+  }
   pctx.clearRect(0,0,paint.width,paint.height);
-  for (let y=0;y<N;y++) {
-    for (let x=0;x<N;x++) {
+  for (let y=0;y<gh();y++) {
+    for (let x=0;x<gw();x++) {
       pctx.fillStyle = ((x+y)%2) ? "#00000012" : "#ffffff12";
-      pctx.fillRect(x*CELL, y*CELL, CELL, CELL);
-      if (g[y][x]) { pctx.fillStyle = g[y][x]; pctx.fillRect(x*CELL, y*CELL, CELL, CELL); }
+      pctx.fillRect(x*C, y*C, C, C);
+      if (g[y][x]) { pctx.fillStyle = g[y][x]; pctx.fillRect(x*C, y*C, C, C); }
       // 🔴 裏の画面には表の形を薄く出す。形は表で決まるので、
       //    その外に描いても出ない。⚠️ 見えないと「描いたのに出ない」になる
       if (twoSided() && side === "back" && !sides.front[y][N-1-x]) {
         pctx.fillStyle = "rgba(200,40,40,0.22)";
-        pctx.fillRect(x*CELL, y*CELL, CELL, CELL);
+        pctx.fillRect(x*C, y*C, C, C);
       }
       // ⚠️ 1つ手前の層を薄く重ねる。位置合わせができないと積み木にならない
       if (showDepth && !g[y][x] && layer > 0 && voxels[layer-1][y][x]) {
         pctx.fillStyle = voxels[layer-1][y][x];
         pctx.globalAlpha = 0.22;
-        pctx.fillRect(x*CELL, y*CELL, CELL, CELL);
+        pctx.fillRect(x*C, y*C, C, C);
         pctx.globalAlpha = 1;
       }
     }
   }
   pctx.strokeStyle = "#8884"; pctx.lineWidth = 1;
-  for (let i=0;i<=N;i++) {
-    pctx.beginPath(); pctx.moveTo(i*CELL,0); pctx.lineTo(i*CELL,N*CELL); pctx.stroke();
-    pctx.beginPath(); pctx.moveTo(0,i*CELL); pctx.lineTo(N*CELL,i*CELL); pctx.stroke();
+  for (let i=0;i<=gw();i++) {
+    pctx.beginPath(); pctx.moveTo(i*C,0); pctx.lineTo(i*C,gh()*C); pctx.stroke();
+  }
+  for (let i=0;i<=gh();i++) {
+    pctx.beginPath(); pctx.moveTo(0,i*C); pctx.lineTo(gw()*C,i*C); pctx.stroke();
   }
 }
 
@@ -1174,6 +1218,32 @@ function cubePolys(cx, cy, scale) {
   return polys;
 }
 
+/**
+ * 旗の見え方。
+ *
+ * ⚠️ <b>揺れは出さない。</b> ゲームの中では揺れるが、描くときに揺れていると
+ * <b>どのマスを塗ったのか分からなくなる</b>。まっすぐ出す。
+ */
+function drawHata() {
+  const g = sides.flag;
+  const C = Math.min((solid.width - 40) / HATA_W, (solid.height - 50) / HATA_H);
+  const x0 = (solid.width - HATA_W*C) / 2 + 6;
+  const y0 = 14;
+  // 竿
+  sctx.fillStyle = "#6b4a2a";
+  sctx.fillRect(x0 - 6, y0 - 8, 4, HATA_H*C + 16);
+  // 布
+  for (let y = 0; y < HATA_H; y++) {
+    for (let x = 0; x < HATA_W; x++) {
+      // ⚠️ 塗っていないところは白い旗の地が出る
+      sctx.fillStyle = g[y][x] || "#f2f2f2";
+      sctx.fillRect(x0 + x*C, y0 + y*C, C + 0.5, C + 0.5);
+    }
+  }
+  sctx.strokeStyle = "#0006";
+  sctx.strokeRect(x0, y0, HATA_W*C, HATA_H*C);
+}
+
 function draw3D() {
   sctx.clearRect(0,0,solid.width,solid.height);
   const cx = solid.width/2, cy = solid.height/2, scale = 15, DEPTH = 1;
@@ -1184,6 +1254,10 @@ function draw3D() {
   }
   if (mode === "block") {
     drawPolys(cubePolys(cx, cy, scale), cx, cy);
+    return;
+  }
+  if (mode === "hata") {
+    drawHata();
     return;
   }
 
@@ -1646,6 +1720,11 @@ function goods() {
       .filter(i => i && i.item)
       .map(i => ({ item: i.item, count: i.count || 1 })),
   };
+  if (mode === "hata") {
+    // 🔴 旗は枠を使わない。バニラの旗に模様を1枚載せるだけ
+    //    ⚠️ 硬さも音も明るさも要らない（ブロックにならないため）
+    return g;
+  }
   if (!twoSided()) {
     g.hardness = Number(val("hardness")) || 1.5;
     g.sound = val("sound");
@@ -2011,6 +2090,11 @@ function render() {
     ? "🔴 <b>前を描けば、後・右・左はついてきます。</b>上と下は<b>縁の色</b>で塞ぎます。<br>" +
       "⚠️ 面を自分で描くと、その面は自動をやめます。「自動に戻す」で戻せます。<br>" +
       "⚠️ <b>空けたところは空いたまま出ます。</b>隙間のある建材も作れます。"
+    : (mode === "hata")
+    ? "🔴 <b>できあがるのは本物の旗です。</b>揺れますし、盾にも付けられます。<br>" +
+      "⚠️ <b>絵の広さは 20×40。</b>旗の面の大きさに合わせてあります。<br>" +
+      "⚠️ <b>塗っていないところは白い地が出ます。</b>消しゴムで抜くと下地になります。<br>" +
+      "🔴 <b>裏は自動で鏡写し</b>になります。本物の旗と同じです。"
     : twoSided()
     ? "🔴 <b>裏は表の写しから始まります。</b>そこへ上書きしてください。<br>" +
       "⚠️ 「表と同じに戻す」で写し直せます。横から見た厚みは表の絵の色を使います。"
@@ -2063,6 +2147,32 @@ function copyJson() {
   navigator.clipboard.writeText(document.getElementById("out").value);
 }
 
+/**
+ * 旗の絵を作る。
+ *
+ * 🔴 <b>64×64 の中の決まった場所に置く。</b> 前は左上(1,1)から 20×40、
+ * 後ろは(22,1)から 20×40 で<b>左右が入れ替わる</b>。
+ * ⚠️ <b>ずらすと旗の面から絵がはみ出す。</b> ここは動かさない。
+ *
+ * ⚠️ <b>塗っていないところは透明のまま。</b> そこは旗の地（白）が出る。
+ */
+function hataBlob(cb) {
+  const c = document.createElement("canvas");
+  c.width = 64; c.height = 64;
+  const x = c.getContext("2d");
+  const g = sides.flag;
+  for (let v = 0; v < HATA_H; v++) {
+    for (let u = 0; u < HATA_W; u++) {
+      const col = g[v][u];
+      if (!col) { continue; }
+      x.fillStyle = col;
+      x.fillRect(1 + u, 1 + v, 1, 1);                 // 前
+      x.fillRect(22 + (HATA_W - 1 - u), 1 + v, 1, 1); // 後ろ（鏡写し）
+    }
+  }
+  c.toBlob(cb, "image/png");
+}
+
 function pngBlob(g, cb) {
   const c = document.createElement("canvas");
   c.width = N; c.height = N;
@@ -2089,12 +2199,18 @@ function saveAll() {
     return;
   }
   download(id + ".json", JSON.stringify(goods(), null, 2));
-  download(id + ".model.json", JSON.stringify(model(), null, 2));
-  download(id + ".item.json", JSON.stringify({
-    model: { type:"minecraft:model",
-             model: "sukecra:" + (twoSided() ? "item/" : "block/") + id }
-  }, null, 2));
-  if (mode === "furniture") {
+  // ⚠️ 旗は見た目の指定を持たない。バニラの旗そのものになる
+  if (mode !== "hata") {
+    download(id + ".model.json", JSON.stringify(model(), null, 2));
+    download(id + ".item.json", JSON.stringify({
+      model: { type:"minecraft:model",
+               model: "sukecra:" + (twoSided() ? "item/" : "block/") + id }
+    }, null, 2));
+  }
+  if (mode === "hata") {
+    // 🔴 旗の絵は 64×64。前と後ろの2か所へ同じ絵を置く（後ろは鏡写し）
+    hataBlob(b => download(id + ".png", b));
+  } else if (mode === "furniture") {
     // 🔴 家具は「色を並べただけの絵」を1枚。面ごとの絵は要らない
     pngBlob(paletteGrid(), b => download(id + ".png", b));
   } else if (mode === "block") {
@@ -2166,7 +2282,9 @@ function fromGoods(g) {
   // ⚠️ 昔の定義には kind しか無いので、そのときは kind から拾う
   const cat = g.category || (g.kind === "block" ? "block" : "food");
   setMode(MODE_OF[cat] || "food");
-  if (PLACEABLE.includes(cat)) {
+  if (cat === "hata") {
+    // ⚠️ 旗は硬さも空腹も持たない。読み戻すものが無い
+  } else if (PLACEABLE.includes(cat)) {
     document.getElementById("hardness").value = g.hardness || 1.5;
     document.getElementById("sound").value = g.sound || "stone";
     document.getElementById("glow").value = g.glow || 0;
@@ -2195,7 +2313,10 @@ function fromGoods(g) {
 function newDish() {
   if (!confirm("いまの内容を捨てて、新しい" + word() + "を作りますか？")) { return; }
   snapshot();
-  Object.keys(sides).forEach(k => { sides[k] = blank(); });
+  // ⚠️ 広さがタブで違う。いったん捨てて、いまのタブのぶんだけ作り直す
+  Object.keys(sides).forEach(k => { delete sides[k]; });
+  faces().forEach(([k]) => { sides[k] = blank(); });
+  side = faces()[0][0];
   voxels = Array.from({length:N},
       () => Array.from({length:N}, () => Array(N).fill(null)));
   layer = 0;
