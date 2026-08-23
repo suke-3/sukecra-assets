@@ -275,21 +275,13 @@
            oninput="render()">
     <span class="hint">⚠️ どちらも<b>合計</b>。素手は 攻撃力1・速さ4</span>
   </div>
-  <div class="row only-weapon" style="display:none">
-    <label>吹き飛ばし</label>
-    <input type="number" id="knockback" value="0" min="0" max="2" step="0.5"
-           oninput="render()">
-    <label style="min-width:74px">燃やす</label>
-    <input type="number" id="fire" value="0" min="0" max="5" step="1"
-           oninput="render()">
-    <span class="hint">
-      秒。🔴 <b>エンチャントとしては付きません</b>――
-      そのうえから火属性やノックバックを重ねられます
-    </span>
+  <div class="row only-gear" style="display:none">
+    <label>エンチャント</label>
+    <div id="enchants" style="flex:1"></div>
   </div>
   <div class="row only-armor" style="display:none">
     <label>着るところ</label>
-    <select id="armorWear" onchange="render()">
+    <select id="armorWear" onchange="drawEnchants(); render()">
       <option value="head">頭</option>
       <option value="chest" selected>胴</option>
       <option value="legs">脚</option>
@@ -441,6 +433,55 @@ const VANILLA_WEAPONS = [
   ["メイス", 6.0, 0.60, 500],
   ["石の剣", 5.0, 1.60, 131],
   ["木の剣", 4.0, 1.60, 59]
+];
+
+/**
+ * はじめから付けられるエンチャント。
+ *
+ * 🔴 <b>選択式で、どれもレベル1だけ</b>（人間の指示 2026-08-23）。
+ *
+ * ⚠️ <b>ここに無いものは「付けても効かない」もの。</b>
+ * トライデント・メイス・弓・やりの固有エンチャント（チャネリング・高密度・
+ * 忠誠・激流・突進・フレイム・パワーなど）は、<b>その持ち物の動き</b>
+ * （投げる・叩きつける・撃つ）に結びついていて、うちの武器では何も起きない。
+ * 26.2 のデータを読んで確かめた（2026-08-23）。
+ *
+ * 中身は [ID, 日本語, どこに付くか]。
+ */
+const ENCHANTS = [
+  ["minecraft:sharpness", "ダメージ増加", "weapon"],
+  ["minecraft:smite", "アンデッド特効", "weapon"],
+  ["minecraft:bane_of_arthropods", "虫特効", "weapon"],
+  ["minecraft:fire_aspect", "火属性", "weapon"],
+  ["minecraft:knockback", "ノックバック", "weapon"],
+  ["minecraft:looting", "ドロップ増加", "weapon"],
+  ["minecraft:sweeping_edge", "範囲ダメージ増加", "weapon"],
+  ["minecraft:protection", "ダメージ軽減", "armor"],
+  ["minecraft:fire_protection", "火炎耐性", "armor"],
+  ["minecraft:blast_protection", "爆発耐性", "armor"],
+  ["minecraft:projectile_protection", "飛び道具耐性", "armor"],
+  ["minecraft:thorns", "棘の鎧", "armor"],
+  ["minecraft:respiration", "水中呼吸", "head"],
+  ["minecraft:aqua_affinity", "水中採掘", "head"],
+  ["minecraft:swift_sneak", "スニーク速度上昇", "legs"],
+  ["minecraft:feather_falling", "落下耐性", "feet"],
+  ["minecraft:depth_strider", "水中歩行", "feet"],
+  ["minecraft:frost_walker", "氷渡り", "feet"],
+  ["minecraft:soul_speed", "ソウルスピード", "feet"],
+  ["minecraft:unbreaking", "耐久力", "both"],
+  ["minecraft:mending", "修繕", "both"]
+];
+
+/**
+ * 同時に付けられない組。
+ *
+ * ⚠️ <b>バニラの決まり。</b> 付けても片方しか効かないので、その場で伝える。
+ */
+const ENCHANT_CLASH = [
+  ["minecraft:sharpness", "minecraft:smite", "minecraft:bane_of_arthropods"],
+  ["minecraft:protection", "minecraft:fire_protection",
+   "minecraft:blast_protection", "minecraft:projectile_protection"],
+  ["minecraft:depth_strider", "minecraft:frost_walker"]
 ];
 
 /** 🔴 武器そのものの DPS の上限。ネザライトの剣と同じ。 */
@@ -1165,6 +1206,7 @@ function setMode(m) {
   drawDepthRow();
 
   drawViewFaces();
+  drawEnchants();
   if (flat) { fillBackIfEmpty(); }
   drawMaterials();
   if (solid) {
@@ -2311,15 +2353,15 @@ function goods() {
     // 🔴 攻撃力と速さは「合計」。素手は 攻撃力1・速さ4
     g.damage = weaponDamage();
     g.swing = Number(val("swing")) || 4;
-    g.knockback = Number(val("knockback")) || 0;
-    g.fire = Number(val("fire")) || 0;
     g.durability = Number(val("durability")) || 0;
+    g.enchants = picked.slice();
     return g;
   } else if (mode === "armor") {
     g.wear = val("armorWear");
     g.armor = Number(val("armor")) || 0;
     g.toughness = Number(val("toughness")) || 0;
     g.durability = Number(val("durability")) || 0;
+    g.enchants = picked.slice();
     return g;
   } else if (mode === "material") {
     // 🔴 中間素材は運営が足すもの。誰でも作れて、枠も使わない
@@ -2675,8 +2717,9 @@ function render() {
     ? "🔴 <b>DPS は " + DPS_CAP_NAME + "（" + DPS_CAP + "）までです。</b>" +
       "超えたぶんは攻撃力を下げて合わせます。<br>" +
       "⚠️ <b>強くしたいときはエンチャントで足してください。</b>ここは武器そのものの強さです。<br>" +
-      "🔴 <b>吹き飛ばしと燃やすはエンチャントとして付きません。</b>" +
-      "だから、そのうえから火属性やノックバックを重ねられます。"
+      "🔴 <b>エンチャントは選択式で、どれもレベル1</b>です。" +
+      "強くするときは金床で本を足してください。<br>" +
+      "⚠️ <b>付いているものはエンチャント台に入りません</b>（バニラの決まり）。"
     : (mode === "armor")
     ? "🔴 <b>着るところごとに1つ</b>です。頭・胴・脚・足で別々に作ります。<br>" +
       "⚠️ <b>ダイヤの胴が防御力8、ネザライトの強度が3</b>です。<br>" +
@@ -2785,6 +2828,78 @@ function copyJson() {
  * ⚠️ <b>速さのほうは書かれたまま。</b> 速さは手触りを決めるので、
  * <b>攻撃力を下げて釣り合いを取る</b>。サーバー側も同じ計算をしている。
  */
+/** いま選ばれているエンチャント。 */
+let picked = [];
+
+/** その品目で選べるものか。 */
+function enchantFits(where) {
+  if (where === "both") { return true; }
+  if (mode === "weapon") { return where === "weapon"; }
+  if (mode !== "armor") { return false; }
+  if (where === "armor") { return true; }
+  return where === val("armorWear");
+}
+
+/**
+ * エンチャントの選び口を描く。
+ *
+ * 🔴 <b>どれもレベル1だけ</b>（人間の指示 2026-08-23）。数は選ばせない。
+ * ⚠️ <b>同時に付けられない組は、その場で伝える。</b>
+ */
+function drawEnchants() {
+  const box = document.getElementById("enchants");
+  if (!box) { return; }
+  box.innerHTML = "";
+  if (mode !== "weapon" && mode !== "armor") { return; }
+  // ⚠️ 品目を変えたら、そこに付かないものは外す
+  picked = picked.filter(id => {
+    const e = ENCHANTS.find(x => x[0] === id);
+    return e && enchantFits(e[2]);
+  });
+
+  const wrap = document.createElement("div");
+  wrap.style.display = "flex";
+  wrap.style.flexWrap = "wrap";
+  wrap.style.gap = "4px";
+  ENCHANTS.filter(e => enchantFits(e[2])).forEach(([id, name]) => {
+    const b = document.createElement("button");
+    b.className = "small" + (picked.includes(id) ? " on" : "");
+    b.textContent = name;
+    b.title = id;
+    b.onclick = () => {
+      const at = picked.indexOf(id);
+      if (at >= 0) { picked.splice(at, 1); } else { picked.push(id); }
+      drawEnchants(); render();
+    };
+    wrap.appendChild(b);
+  });
+  box.appendChild(wrap);
+
+  const note = document.createElement("p");
+  note.className = "hint";
+  const clashes = [];
+  ENCHANT_CLASH.forEach(group => {
+    const both = group.filter(id => picked.includes(id));
+    if (both.length > 1) {
+      clashes.push(both.map(id =>
+          (ENCHANTS.find(x => x[0] === id) || [0, id])[1]).join("と"));
+    }
+  });
+  if (clashes.length) {
+    note.className = "hint bad";
+    note.innerHTML = "🔴 <b>" + clashes.join("／")
+        + " は同時に付けられません。</b>片方しか効きません。";
+  } else if (picked.length) {
+    note.innerHTML = "⚠️ <b>どれもレベル1で付きます。</b>"
+        + "強くするときは<b>金床でエンチャント本を足してください</b>。<br>"
+        + "🔴 <b>エンチャントが付いているものはエンチャント台に入りません</b>（バニラの決まり）。";
+  } else {
+    note.innerHTML = "⚠️ <b>付けなくても構いません。</b>"
+        + "トライデントやメイスの固有エンチャントは、うちの武器では効かないので出していません。";
+  }
+  box.appendChild(note);
+}
+
 function weaponDamage() {
   const swing = Math.max(0.1, Number(val("swing")) || 4);
   let hit = Math.max(1, Number(val("damage")) || 1);
@@ -2805,12 +2920,10 @@ function gearHint() {
   else if (dps > 9.6) { base = "ダイヤの剣ぶん（ダイヤ2＋棒1）"; }
   else if (dps > 8.0) { base = "鉄の剣ぶん（鉄2＋棒1）"; }
   else if (dps > 6.4) { base = "石の剣ぶん（石2＋棒1）"; }
-  const books = [];
-  const fire = Number(val("fire")) || 0;
-  const kb = Number(val("knockback")) || 0;
-  if (fire > 0) { books.push("火属性の本 " + Math.ceil(fire / 4) + "冊"); }
-  if (kb > 0) { books.push("ノックバックの本 " + Math.ceil(kb) + "冊"); }
-  return base + (books.length ? "　＋　" + books.join("　＋　") : "");
+  // ⚠️ はじめから付けるエンチャント1つにつき、その本を1冊
+  const books = picked.map(id =>
+      (ENCHANTS.find(x => x[0] === id) || [0, id])[1] + "の本");
+  return base + (books.length ? "　＋　" + books.join("　＋　") + " 各1冊" : "");
 }
 
 /** 強さの欄を描く。⚠️ 上限を超えていたら、そのことをはっきり出す。 */
@@ -3039,14 +3152,14 @@ function fromGoods(g) {
   } else if (cat === "weapon") {
     document.getElementById("damage").value = g.damage || 1;
     document.getElementById("swing").value = g.swing || 4;
-    document.getElementById("knockback").value = g.knockback || 0;
-    document.getElementById("fire").value = g.fire || 0;
     document.getElementById("durability").value = g.durability || 0;
+    picked = (g.enchants || []).slice();
   } else if (cat === "armor") {
     document.getElementById("armorWear").value = g.wear || "chest";
     document.getElementById("armor").value = g.armor || 0;
     document.getElementById("toughness").value = g.toughness || 0;
     document.getElementById("durability").value = g.durability || 0;
+    picked = (g.enchants || []).slice();
   } else if (cat === "clothes") {
     document.getElementById("wear").value = g.wear || "chest";
     document.getElementById("layer").value = g.layer || 0;
