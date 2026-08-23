@@ -169,8 +169,12 @@
       <button class="small" id="viewHand" onclick="setView('hand')">斜め</button>
       <span id="viewFaces"></span>
       <button id="spin" class="small on" onclick="toggleSpin()">回す</button>
-      <button id="tpose" class="small" style="display:none"
-              onclick="toggleTPose()">Tポーズ</button>
+      <button id="tpose" class="small pose" style="display:none"
+              onclick="setArmPose('t')">Tポーズ</button>
+      <button id="armFront" class="small pose" style="display:none"
+              onclick="setArmPose('front')">手を前</button>
+      <button id="legFront" class="small pose" style="display:none"
+              onclick="setLegPose('front')">足を前</button>
     </div>
     <p class="hint" id="dragHint">ドラッグで好きな向きに回せます。動かすと自動で回るのが止まります。</p>
     <p class="hint bad" id="overflow"></p>
@@ -1055,9 +1059,9 @@ function setMode(m) {
     const e = document.getElementById(k);
     if (e) { e.style.display = flat2d ? "none" : ""; }
   });
-  // 🔴 腕を伸ばすのは人の形のときだけ
-  const tb = document.getElementById("tpose");
-  if (tb) { tb.style.display = isSkin() ? "" : "none"; }
+  // 🔴 立たせ方を変えられるのは人の形のときだけ
+  document.querySelectorAll(".pose").forEach(
+    e => e.style.display = isSkin() ? "" : "none");
   // 🔴 スキンは品物ではない。名前も材料も要らない
   ["cardGoods", "cardRecipe", "cardOut"].forEach(k => {
     const e = document.getElementById(k);
@@ -1488,48 +1492,91 @@ function cubePolys(cx, cy, scale) {
  * <b>どのマスを塗ったのか分からなくなる</b>。まっすぐ出す。
  */
 /**
- * Tポーズにするか。
+ * 立たせ方。
  *
- * 🔴 <b>腕の内側（体に当たる側）は、下ろしたままでは見えない</b>
- * （人間の指示 2026-08-23）。横に伸ばすと確かめられる。
+ * 🔴 <b>下ろしたままでは見えない面がある</b>（人間の指示 2026-08-23）。
+ * 腕の内側は胴と、脚の内側はもう片方の脚と、<b>面がぴったり重なる</b>ので
+ * どの向きから見ても出てこない。動かして初めて見える。
+ *
+ * <p>腕は「下ろす／横に伸ばす／前に出す」の3つ、脚は「そろえる／前に出す」の2つ。
+ * ⚠️ <b>腕の2つは同時に選べない。</b> 同じ関節を回すため。
  */
-let tPose = false;
+let armPose = "";   // "" ／ "t" ／ "front"
+let legPose = "";   // "" ／ "front"
 
-function toggleTPose() {
-  tPose = !tPose;
-  const b = document.getElementById("tpose");
-  if (b) { b.classList.toggle("on", tPose); }
+function setArmPose(kind) {
+  armPose = (armPose === kind) ? "" : kind;
+  refreshPose();
+}
+
+function setLegPose(kind) {
+  legPose = (legPose === kind) ? "" : kind;
+  refreshPose();
+}
+
+function refreshPose() {
+  const on = (id, yes) => {
+    const e = document.getElementById(id);
+    if (e) { e.classList.toggle("on", yes); }
+  };
+  on("tpose", armPose === "t");
+  on("armFront", armPose === "front");
+  on("legFront", legPose === "front");
 }
 
 /**
- * 腕を横へ伸ばす。
+ * その部位を、どこを軸にどれだけ回すか。
  *
- * ⚠️ <b>肩を軸にして 90 度回す。</b> 置き直すのではなく回すので、
- * <b>絵の貼り方はそのままでよい</b>――どの面がどこかを考え直さずに済む。
+ * ⚠️ <b>置き直すのではなく回す。</b> そうすれば<b>絵の貼り方はそのままでよい</b>――
+ * どの面がどこかを考え直さずに済む。
  *
- * @return 回す中心と角度。回さないなら null
+ * <p>軸は <b>z</b>（横に開く）か <b>x</b>（前後に振る）。
+ * ⚠️ <b>y は下向き</b>なので、前に出すのは -π/2。
+ *
+ * @return 回し方。回さないなら null
  */
-function armTurn(key) {
-  if (!tPose) { return null; }
-  // ⚠️ 軸は肩。y は下向きなので、右腕は +90 度で -x のほうへ伸びる
-  if (key === "arm_r") { return { px: -4, py: 12, a: Math.PI / 2 }; }
-  if (key === "arm_l") { return { px: 4, py: 12, a: -Math.PI / 2 }; }
+function partTurn(key) {
+  if (key === "arm_r" || key === "arm_l") {
+    const right = (key === "arm_r");
+    if (armPose === "t") {
+      // 肩を軸に横へ。⚠️ 体に当たっていた面は下を向く
+      return { axis:"z", px: right ? -4 : 4, py: 12, a: right ? Math.PI/2 : -Math.PI/2 };
+    }
+    if (armPose === "front") {
+      // 肩を軸に前へ。⚠️ 腕が胴から離れるので、内側が横から見える
+      return { axis:"x", py: 10, pz: 0, a: -Math.PI/2 };
+    }
+    return null;
+  }
+  if ((key === "leg_r" || key === "leg_l") && legPose === "front") {
+    // 🔴 片方を前、もう片方を後ろへ。⚠️ 両方とも前だと、
+    //    脚どうしがくっついたままで内側が見えない
+    const right = (key === "leg_r");
+    return { axis:"x", py: 22, pz: 0, a: right ? -Math.PI/2 : Math.PI/2 };
+  }
   return null;
 }
 
-/** その点を、腕の向きに合わせて回す。 */
-function armPoint(t, x, y, z) {
+/** その点を、立たせ方に合わせて回す。 */
+function turnPoint(t, x, y, z) {
   if (!t) { return [x, y, z]; }
   const c = Math.cos(t.a), s = Math.sin(t.a);
-  const dx = x - t.px, dy = y - t.py;
-  return [t.px + dx * c - dy * s, t.py + dx * s + dy * c, z];
+  if (t.axis === "z") {
+    const dx = x - t.px, dy = y - t.py;
+    return [t.px + dx * c - dy * s, t.py + dx * s + dy * c, z];
+  }
+  const dy = y - t.py, dz = z - t.pz;
+  return [x, t.py + dy * c - dz * s, t.pz + dy * s + dz * c];
 }
 
-/** その向きを、腕の向きに合わせて回す。⚠️ 中心はずらさない。 */
-function armDir(t, n) {
+/** その向きを、立たせ方に合わせて回す。⚠️ 中心はずらさない。 */
+function turnDir(t, n) {
   if (!t) { return n; }
   const c = Math.cos(t.a), s = Math.sin(t.a);
-  return [n[0] * c - n[1] * s, n[0] * s + n[1] * c, n[2]];
+  if (t.axis === "z") {
+    return [n[0] * c - n[1] * s, n[0] * s + n[1] * c, n[2]];
+  }
+  return [n[0], n[1] * c - n[2] * s, n[1] * s + n[2] * c];
 }
 
 /**
@@ -1564,10 +1611,10 @@ function bodyPolys(cx, cy, scale) {
       const b = { x: box.x - grow, y: box.y - grow, z: box.z - grow,
                   w: box.w + grow*2, h: box.h + grow*2, d: box.d + grow*2 };
 
-      const turn = armTurn(key);
+      const turn = partTurn(key);
       BODY_FACES.forEach(f => {
         // 外を向いている面だけ描く。⚠️ 向こう向きは手前に隠れる
-        if (rot(armDir(turn, f.n))[2] >= 0) { return; }
+        if (rot(turnDir(turn, f.n))[2] >= 0) { return; }
         const [ux, uy, fw, fh] = f.uv(p.w, p.h, p.d);
         const { o, u, v } = f.at(b);
         for (let j = 0; j < fh; j++) {
@@ -1586,7 +1633,7 @@ function bodyPolys(cx, cy, scale) {
               const lenV = Math.abs(v[0]) * b.w + Math.abs(v[1]) * b.h
                          + Math.abs(v[2]) * b.d;
               // ⚠️ 先に腕を回してから、まん中を引いて、全体を回す
-              const t = armPoint(turn,
+              const t = turnPoint(turn,
                   o[0] + u[0]*uu*lenU + v[0]*vv*lenV,
                   o[1] + u[1]*uu*lenU + v[1]*vv*lenV,
                   o[2] + u[2]*uu*lenU + v[2]*vv*lenV);
@@ -2513,7 +2560,10 @@ function render() {
       "⚠️ <b>プレビューの暗いところは、まだ塗っていないところです。</b><br>" +
       "⚠️ <b>目印の色は向きです。</b>青＝前、紫＝後、緑＝右、橙＝左、黄＝上、赤＝下。<br>" +
       "⚠️ <b>右のプレビューはドラッグで回せます。</b>横も上下も確かめられます。<br>" +
-      "⚠️ <b>「Tポーズ」で腕を横に伸ばせます。</b>腕の内側（体に当たる側）はこれで確かめてください。"
+      "🔴 <b>下ろしたままでは見えない面があります。</b>腕の内側は胴と、脚の内側は" +
+      "もう片方の脚と重なるためです。<br>" +
+      "⚠️ <b>「Tポーズ」は横へ、「手を前」は前へ腕を動かします。</b>" +
+      "「足を前」は片足を前、もう片足を後ろへ出します。"
     : (mode === "clothes")
     ? "🔴 <b>並びはスキンと同じ 64×64 です。</b>頭・胴・腕・脚がこの1枚に入っています。<br>" +
       "⚠️ <b>塗っていないところは素肌や防具が透けます。</b>着たいところだけ塗ってください。<br>" +
@@ -2521,7 +2571,10 @@ function render() {
       "🔴 <b>防御力はありません。</b>見た目だけで、防具の上から重なります。<br>" +
       "⚠️ <b>目印の色は向きです。</b>青＝前、紫＝後、緑＝右、橙＝左、黄＝上、赤＝下。<br>" +
       "⚠️ <b>右のプレビューはドラッグで回せます。</b>横も上下も確かめられます。<br>" +
-      "⚠️ <b>「Tポーズ」で腕を横に伸ばせます。</b>腕の内側（体に当たる側）はこれで確かめてください。"
+      "🔴 <b>下ろしたままでは見えない面があります。</b>腕の内側は胴と、脚の内側は" +
+      "もう片方の脚と重なるためです。<br>" +
+      "⚠️ <b>「Tポーズ」は横へ、「手を前」は前へ腕を動かします。</b>" +
+      "「足を前」は片足を前、もう片足を後ろへ出します。"
     : (mode === "hata")
     ? "🔴 <b>できあがるのは本物の旗です。</b>揺れますし、盾にも付けられます。<br>" +
       "⚠️ <b>絵の広さは 20×40。</b>旗の面の大きさに合わせてあります。<br>" +
