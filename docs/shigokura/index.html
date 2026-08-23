@@ -81,6 +81,8 @@
   <button id="m-food" class="on" onclick="setMode('food')">🍜 料理</button>
   <button id="m-block" onclick="setMode('block')">🧱 建材</button>
   <button id="m-furniture" onclick="setMode('furniture')">🪑 家具</button>
+  <button id="m-weapon" onclick="setMode('weapon')" style="display:none">⚔️ 武器</button>
+  <button id="m-armor" onclick="setMode('armor')" style="display:none">🛡️ 防具</button>
   <button id="m-clothes" onclick="setMode('clothes')" style="display:none">👕 洋服</button>
   <button id="m-hata" onclick="setMode('hata')" style="display:none">🚩 旗</button>
   <button id="m-skin" onclick="setMode('skin')">🧍 スキン</button>
@@ -213,6 +215,7 @@
       <option value="cook">料理人</option>
       <option value="builder">建築家</option>
       <option value="tailor">呉服屋</option>
+      <option value="smith">鍛冶屋</option>
     </select>
     <span class="hint">⚠️ その職業に就いていないと作れません</span>
   </div>
@@ -262,6 +265,54 @@
       薄い色を使うと、ここは<b>自動で入ります</b>。
       ⚠️ 家具は指定しなくても必ず通します
     </span>
+  </div>
+  <div class="row only-weapon" style="display:none">
+    <label>攻撃力</label>
+    <input type="number" id="damage" value="7" min="1" max="10" step="0.5"
+           oninput="render()">
+    <label style="min-width:74px">攻撃速度</label>
+    <input type="number" id="swing" value="1.6" min="0.1" max="4" step="0.1"
+           oninput="render()">
+    <span class="hint">⚠️ どちらも<b>合計</b>。素手は 攻撃力1・速さ4</span>
+  </div>
+  <div class="row only-weapon" style="display:none">
+    <label>吹き飛ばし</label>
+    <input type="number" id="knockback" value="0" min="0" max="2" step="0.5"
+           oninput="render()">
+    <label style="min-width:74px">燃やす</label>
+    <input type="number" id="fire" value="0" min="0" max="5" step="1"
+           oninput="render()">
+    <span class="hint">
+      秒。🔴 <b>エンチャントとしては付きません</b>――
+      そのうえから火属性やノックバックを重ねられます
+    </span>
+  </div>
+  <div class="row only-armor" style="display:none">
+    <label>着るところ</label>
+    <select id="armorWear" onchange="render()">
+      <option value="head">頭</option>
+      <option value="chest" selected>胴</option>
+      <option value="legs">脚</option>
+      <option value="feet">足</option>
+    </select>
+    <label style="min-width:64px">防御力</label>
+    <input type="number" id="armor" value="3" min="0" max="8" step="1" oninput="render()">
+    <label style="min-width:48px">強度</label>
+    <input type="number" id="toughness" value="0" min="0" max="3" step="0.5"
+           oninput="render()">
+    <span class="hint">⚠️ ダイヤの胴が防御力8／ネザライトの強度は3</span>
+  </div>
+  <div class="row only-gear" style="display:none">
+    <label>耐久</label>
+    <input type="number" id="durability" value="1561" min="0" max="2031" step="1"
+           oninput="render()">
+    <span class="hint">
+      ⚠️ <b>0 なら壊れません。</b>ネザライト系が 2031、ダイヤが 1561、鉄が 250
+    </span>
+  </div>
+  <div class="row only-weapon" style="display:none">
+    <label>強さ</label>
+    <div id="dps" style="flex:1"></div>
   </div>
   <div class="row only-clothes" style="display:none">
     <label>着るところ</label>
@@ -375,6 +426,29 @@ const HATA_H = 40;
  */
 const SKIN = 64;
 
+/**
+ * バニラの武器の数。
+ *
+ * 🔴 <b>ゲームの出力から取った</b>（26.2 のデータ生成・2026-08-23）。思い出しではない。
+ * ⚠️ <b>攻撃力も速さも「合計」。</b> 素手は 攻撃力1・速さ4。
+ */
+const VANILLA_WEAPONS = [
+  ["ネザライトの剣", 8.0, 1.60, 2031],
+  ["ネザライトの斧", 10.0, 1.00, 2031],
+  ["ダイヤの剣", 7.0, 1.60, 1561],
+  ["トライデント", 9.0, 1.10, 250],
+  ["鉄の剣", 6.0, 1.60, 250],
+  ["メイス", 6.0, 0.60, 500],
+  ["石の剣", 5.0, 1.60, 131],
+  ["木の剣", 4.0, 1.60, 59]
+];
+
+/** 🔴 武器そのものの DPS の上限。ネザライトの剣と同じ。 */
+const DPS_CAP = 12.8;
+
+/** 上限にあたる武器。⚠️ 説明に出す。 */
+const DPS_CAP_NAME = "ネザライトの剣";
+
 /** 体を描くタブか（洋服・スキン）。 */
 const isSkin = () => (mode === "clothes" || mode === "skin");
 
@@ -411,6 +485,9 @@ const SIDE_SET = {
   food:  [["front","表"], ["back","裏"]],
   // ⚠️ 中間素材は料理と同じ作り。持ち物に入るだけのもの
   material: [["front","表"], ["back","裏"]],
+  // ⚠️ 武器と防具も持ち物の絵。料理と同じ2面
+  weapon: [["front","表"], ["back","裏"]],
+  armor: [["front","表"], ["back","裏"]],
   block: [["north","前"], ["south","後"], ["east","右"], ["west","左"],
           ["up","上"], ["down","下"]],
   // 家具は建材と同じ6面。⚠️ 違うのは「深さ」を持てることだけ
@@ -576,18 +653,20 @@ let mode = "food";
  * ⚠️ 中間素材は枠を使わないが、書き出しの形をそろえるために入れてある。
  */
 const CATEGORY = { food: "food", block: "block", furniture: "furniture",
-                  material: "food", hata: "hata", clothes: "clothes" };
+                  material: "food", hata: "hata", clothes: "clothes",
+                  weapon: "weapon", armor: "armor" };
 
 /** 品目 → タブ。⚠️ 読み込みのときに使う。 */
 const MODE_OF = { food: "food", block: "block", furniture: "furniture",
-                  hata: "hata", clothes: "clothes" };
+                  hata: "hata", clothes: "clothes",
+                  weapon: "weapon", armor: "armor" };
 
 /** 置けるもの。⚠️ サーバーの categories.json の block と揃えること。 */
 const PLACEABLE = ["block", "furniture"];
 
 const WORD = { food: "料理", block: "建材", furniture: "家具",
                material: "中間素材", hata: "旗", clothes: "洋服",
-               skin: "スキン" };
+               skin: "スキン", weapon: "武器", armor: "防具" };
 const word = () => WORD[mode];
 
 /**
@@ -1007,6 +1086,8 @@ function setMode(m) {
   document.getElementById("m-hata").classList.toggle("on", m === "hata");
   document.getElementById("m-clothes").classList.toggle("on", m === "clothes");
   document.getElementById("m-skin").classList.toggle("on", m === "skin");
+  document.getElementById("m-weapon").classList.toggle("on", m === "weapon");
+  document.getElementById("m-armor").classList.toggle("on", m === "armor");
   const solid = (m === "block" || m === "furniture");
   // ⚠️ 中間素材は料理と同じ扱い。食べられなくてよいので、効果の欄は出さない
   const flat = (m === "food" || m === "material");
@@ -1037,6 +1118,13 @@ function setMode(m) {
     e => e.style.display = (m === "furniture") ? "" : "none");
   document.querySelectorAll(".only-clothes").forEach(
     e => e.style.display = (m === "clothes") ? "" : "none");
+  document.querySelectorAll(".only-weapon").forEach(
+    e => e.style.display = (m === "weapon") ? "" : "none");
+  document.querySelectorAll(".only-armor").forEach(
+    e => e.style.display = (m === "armor") ? "" : "none");
+  // ⚠️ 耐久は武器と防具のどちらにも要る
+  document.querySelectorAll(".only-gear").forEach(
+    e => e.style.display = (m === "weapon" || m === "armor") ? "" : "none");
   // 🔴 明るさは建材・家具・洋服で使う
   document.querySelectorAll(".only-glow").forEach(
     e => e.style.display = (solid || m === "clothes") ? "" : "none");
@@ -1046,7 +1134,9 @@ function setMode(m) {
   // ⚠️ 中間素材は料理人のもの。建築家にすると誰も作れなくなる
   // 🔴 旗は呉服屋のもの。ほかの職業にすると誰も作れなくなる
   document.getElementById("job").value =
-      (m === "hata" || m === "clothes") ? "tailor" : (flat ? "cook" : "builder");
+      (m === "hata" || m === "clothes") ? "tailor"
+      : (m === "weapon" || m === "armor") ? "smith"
+      : (flat ? "cook" : "builder");
   // ⚠️ 呼び名をそろえる。いまどれを作っているかが文字で分かるように
   // ⚠️ 広さはタブで変わる。見出しに出さないと「なぜ縦長なのか」が分からない
   document.getElementById("artTitle").textContent =
@@ -1092,7 +1182,11 @@ function setMode(m) {
  * 🔴 <b>選ばせない</b>（人間の判断 2026-08-21）。原則どちらも描く運用なので、
  * 「別の絵にするか」を毎回聞く意味がない。裏は表の写しから始まる。
  */
-function twoSided() { return mode === "food" || mode === "material"; }
+function twoSided() {
+  // ⚠️ 持ち物の絵はどれも表と裏。武器と防具も同じ作り
+  return mode === "food" || mode === "material"
+      || mode === "weapon" || mode === "armor";
+}
 
 /** 🔴 裏は「表の写し」から始める。まっさらから描き直させない。 */
 function fillBackIfEmpty() {
@@ -1934,11 +2028,11 @@ function setAdmin(on) {
   // 🔴 洋服と旗は運営だけ（人間の指示 2026-08-23）。
   //    参加者に見えるのは冒険者・料理人・建築家の3職ぶんだけ。
   //    ⚠️ スキンは職業と関係ないので、いつでも見える
-  ["m-clothes", "m-hata"].forEach(k => {
+  ["m-clothes", "m-hata", "m-weapon", "m-armor"].forEach(k => {
     document.getElementById(k).style.display = on ? "" : "none";
   });
   // ⚠️ 運営モードを切ったら、隠したタブから出す
-  if (!on && (mode === "material" || mode === "clothes" || mode === "hata")) {
+  if (!on && ["material", "clothes", "hata", "weapon", "armor"].includes(mode)) {
     setMode("food");
   }
   drawMaterials();
@@ -2213,6 +2307,20 @@ function goods() {
       g.sit = on("sit");
       if (g.sit) { g.sitHeight = Number(val("sitHeight")) || 0.5; }
     }
+  } else if (mode === "weapon") {
+    // 🔴 攻撃力と速さは「合計」。素手は 攻撃力1・速さ4
+    g.damage = weaponDamage();
+    g.swing = Number(val("swing")) || 4;
+    g.knockback = Number(val("knockback")) || 0;
+    g.fire = Number(val("fire")) || 0;
+    g.durability = Number(val("durability")) || 0;
+    return g;
+  } else if (mode === "armor") {
+    g.wear = val("armorWear");
+    g.armor = Number(val("armor")) || 0;
+    g.toughness = Number(val("toughness")) || 0;
+    g.durability = Number(val("durability")) || 0;
+    return g;
   } else if (mode === "material") {
     // 🔴 中間素材は運営が足すもの。誰でも作れて、枠も使わない
     g.open = true;
@@ -2563,6 +2671,16 @@ function render() {
     ? "🔴 <b>前を描けば、後・右・左はついてきます。</b>上と下は<b>縁の色</b>で塞ぎます。<br>" +
       "⚠️ 面を自分で描くと、その面は自動をやめます。「自動に戻す」で戻せます。<br>" +
       "⚠️ <b>空けたところは空いたまま出ます。</b>隙間のある建材も作れます。"
+    : (mode === "weapon")
+    ? "🔴 <b>DPS は " + DPS_CAP_NAME + "（" + DPS_CAP + "）までです。</b>" +
+      "超えたぶんは攻撃力を下げて合わせます。<br>" +
+      "⚠️ <b>強くしたいときはエンチャントで足してください。</b>ここは武器そのものの強さです。<br>" +
+      "🔴 <b>吹き飛ばしと燃やすはエンチャントとして付きません。</b>" +
+      "だから、そのうえから火属性やノックバックを重ねられます。"
+    : (mode === "armor")
+    ? "🔴 <b>着るところごとに1つ</b>です。頭・胴・脚・足で別々に作ります。<br>" +
+      "⚠️ <b>ダイヤの胴が防御力8、ネザライトの強度が3</b>です。<br>" +
+      "⬜ <b>着たときの見た目はまだ出せません。</b>体は守られますが姿は変わりません。"
     : (mode === "skin")
     ? "🔴 <b>自分のスキンを描くところです。</b>品物にはなりません。<br>" +
       "⚠️ <b>部位のタブと「内側／外側」で塗り分けます。</b>外側は帽子や上着の層です。<br>" +
@@ -2599,6 +2717,7 @@ function render() {
   document.getElementById("out").value = JSON.stringify(goods(), null, 2);
   showOverflow();
   showBoxes();
+  showDps();
 }
 
 /**
@@ -2659,6 +2778,71 @@ function copyJson() {
  *
  * ⚠️ <b>外側の層があればそちらを使う。</b> 上着のように外側だけ描く服がある。
  */
+/**
+ * 武器の攻撃力（合計）。
+ *
+ * 🔴 <b>DPS がネザライトの剣を超えないように丸める</b>（人間の判断 2026-08-23）。
+ * ⚠️ <b>速さのほうは書かれたまま。</b> 速さは手触りを決めるので、
+ * <b>攻撃力を下げて釣り合いを取る</b>。サーバー側も同じ計算をしている。
+ */
+function weaponDamage() {
+  const swing = Math.max(0.1, Number(val("swing")) || 4);
+  let hit = Math.max(1, Number(val("damage")) || 1);
+  if (hit * swing > DPS_CAP) { hit = DPS_CAP / swing; }
+  return Math.round(hit * 100) / 100;
+}
+
+/**
+ * 素材の目安。
+ *
+ * 🔴 <b>同じくらいの強さのバニラ武器に合わせる</b>（人間の判断 2026-08-23）。
+ * ⚠️ <b>エンチャントとして付かない効果は、そのぶんの本を足す。</b>
+ */
+function gearHint() {
+  const dps = weaponDamage() * Math.max(0.1, Number(val("swing")) || 4);
+  let base = "木の剣ぶん（板材2＋棒1）";
+  if (dps > 11.2) { base = "ネザライトの剣ぶん（ネザライトインゴット1＋ダイヤ2＋棒1）"; }
+  else if (dps > 9.6) { base = "ダイヤの剣ぶん（ダイヤ2＋棒1）"; }
+  else if (dps > 8.0) { base = "鉄の剣ぶん（鉄2＋棒1）"; }
+  else if (dps > 6.4) { base = "石の剣ぶん（石2＋棒1）"; }
+  const books = [];
+  const fire = Number(val("fire")) || 0;
+  const kb = Number(val("knockback")) || 0;
+  if (fire > 0) { books.push("火属性の本 " + Math.ceil(fire / 4) + "冊"); }
+  if (kb > 0) { books.push("ノックバックの本 " + Math.ceil(kb) + "冊"); }
+  return base + (books.length ? "　＋　" + books.join("　＋　") : "");
+}
+
+/** 強さの欄を描く。⚠️ 上限を超えていたら、そのことをはっきり出す。 */
+function showDps() {
+  const box = document.getElementById("dps");
+  if (!box || mode !== "weapon") { return; }
+  const swing = Math.max(0.1, Number(val("swing")) || 4);
+  const asked = Math.max(1, Number(val("damage")) || 1);
+  const hit = weaponDamage();
+  const dps = Math.round(hit * swing * 100) / 100;
+  const over = (asked * swing) > DPS_CAP + 0.001;
+
+  let html = "<b>DPS " + dps.toFixed(2) + "</b>"
+      + "　（攻撃力 " + hit.toFixed(2) + " × 速さ " + swing.toFixed(2) + "）";
+  if (over) {
+    html += "<br><span class='bad'>🔴 <b>" + DPS_CAP_NAME + "（" + DPS_CAP
+        + "）を超えたので、攻撃力を " + hit.toFixed(2) + " に下げました。</b>"
+        + "強くしたいときは<b>エンチャントで足してください</b>。</span>";
+  }
+  let near = null, gap = 1e9;
+  VANILLA_WEAPONS.forEach(w => {
+    const d = Math.abs(w[1] * w[2] - dps);
+    if (d < gap) { gap = d; near = w; }
+  });
+  if (near) {
+    html += "<br><span class='muted'>目安：" + near[0] + "（DPS "
+        + (near[1] * near[2]).toFixed(2) + "）くらい</span>";
+  }
+  html += "<br><span class='muted'>素材の目安：" + gearHint() + "</span>";
+  box.innerHTML = html;
+}
+
 function iconGrid() {
   const g = sheet();
   // 着るところ → 前から見て代表になるところ [内側, 外側]
@@ -2852,6 +3036,17 @@ function fromGoods(g) {
   setMode(MODE_OF[cat] || "food");
   if (cat === "hata") {
     // ⚠️ 旗は硬さも空腹も持たない。読み戻すものが無い
+  } else if (cat === "weapon") {
+    document.getElementById("damage").value = g.damage || 1;
+    document.getElementById("swing").value = g.swing || 4;
+    document.getElementById("knockback").value = g.knockback || 0;
+    document.getElementById("fire").value = g.fire || 0;
+    document.getElementById("durability").value = g.durability || 0;
+  } else if (cat === "armor") {
+    document.getElementById("armorWear").value = g.wear || "chest";
+    document.getElementById("armor").value = g.armor || 0;
+    document.getElementById("toughness").value = g.toughness || 0;
+    document.getElementById("durability").value = g.durability || 0;
   } else if (cat === "clothes") {
     document.getElementById("wear").value = g.wear || "chest";
     document.getElementById("layer").value = g.layer || 0;
