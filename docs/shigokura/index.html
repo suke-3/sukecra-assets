@@ -348,6 +348,14 @@
     </span>
   </div>
   <div class="row only-furniture" style="display:none">
+    <label>中身を入れる</label>
+    <input type="checkbox" id="chest" onchange="render()">
+    <span class="hint">
+      🔴 <b>樽やチェストのように、中に物を入れられます。</b>27マスです<br>
+      ⚠️ <b>専用の枠を使います</b>（64個まで）。ふつうの家具とは別の数えです
+    </span>
+  </div>
+  <div class="row only-furniture" style="display:none">
     <label>座れる</label>
     <input type="checkbox" id="sit" onchange="render()">
     <label style="min-width:74px">座面の高さ</label>
@@ -2537,6 +2545,8 @@ function goods() {
       g.boxes = shapeBoxes();
       g.sit = on("sit");
       if (g.sit) { g.sitHeight = Number(val("sitHeight")) || 0.5; }
+      // 🔴 中身を入れられる家具は専用の枠を使う（2026-08-24）
+      g.chest = on("chest");
     }
   } else if (mode === "weapon") {
     // 🔴 バニラのどの持ち物として振る舞うか（人間の指示 2026-08-24）
@@ -3596,6 +3606,7 @@ function fromGoods(g) {
     document.getElementById("glow").value = g.glow || 0;
     document.getElementById("seethru").checked = !!g.clear;
     document.getElementById("sit").checked = !!g.sit;
+    document.getElementById("chest").checked = !!g.chest;
     document.getElementById("sitHeight").value = g.sitHeight || 0.5;
   } else {
     document.getElementById("nutrition").value = g.nutrition || 0;
