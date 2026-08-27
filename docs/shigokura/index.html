@@ -100,7 +100,7 @@
     <button class="small" onclick="checkPw()">開く</button>
     <button class="small" onclick="closePw()">やめる</button>
   </span>
-  <button class="primary" onclick="saveAll()">一式を保存</button>
+  <button class="primary" id="saveBtn" onclick="saveAll()">一式を保存</button>
 </header>
 
 <main>
@@ -249,6 +249,25 @@
     </select>
     <span class="hint">⚠️ 石は 1.5、鉄ブロックは 5.0</span>
   </div>
+  <div class="row only-block" style="display:none">
+    <label>手触り</label>
+    <select id="feel" onchange="render()">
+      <option value="">ふつう（石と同じ）</option>
+      <option value="minecraft:ice">氷 ― よく滑る</option>
+      <option value="minecraft:packed_ice">かたい氷 ― よく滑る</option>
+      <option value="minecraft:blue_ice">青い氷 ― いちばん滑る</option>
+      <option value="minecraft:slime_block">スライム ― 少し滑る（⚠️ 跳ねません）</option>
+      <option value="minecraft:honey_block">ハチミツ ― 跳べない・歩くと遅い</option>
+      <option value="minecraft:soul_sand">ソウルサンド ― 歩くと遅い</option>
+      <option value="minecraft:soul_soil">ソウルソイル ― 歩くと遅い</option>
+    </select>
+    <span class="hint">🔴 <b>選んだブロックの動き方をそのまま写します。</b>
+      見た目は自分の絵のままです。<br>
+      ⚠️ <b>滑る床やアスレチックに使えます。</b>数字は書きません
+      （バニラが変わっても付いていくように）。<br>
+      🔴 <b>写せるのは「滑りやすさ・歩く速さ・跳び方」の3つだけです。</b>
+      スライムの<b>跳ね返り</b>やマグマの<b>ダメージ</b>は別の仕組みなので付いてきません。</span>
+  </div>
   <div class="row only-glow" style="display:none">
     <label>明るさ</label>
     <select id="glow" onchange="render()">
@@ -376,6 +395,13 @@
     <div style="flex:1">
       <div id="items"></div>
       <button class="small" id="addBtn" onclick="addItem()">材料を足す</button>
+      <button class="small" id="dyeBtn" onclick="fillDyes()"
+              style="display:none">使った色の染料を入れる</button>
+      <p class="hint" id="dyeHint" style="display:none">
+        🔴 <b>使う色の数だけ染料が要ります。</b>
+        旗は<b>「1つの模様＝1色」</b>なので、色ごとに1枚ずつ重ねます。<br>
+        ⚠️ <b>描いた色は、いちばん近い染料に寄ります。</b> 中間色はそのままでは出ません。
+      </p>
     </div>
   </div>
 </div>
@@ -406,6 +432,22 @@
     上の「運営モード」を入れると<b>いくつでも</b>足せます。<br>
     強さは 0 が「Ⅰ」、1 が「Ⅱ」。⚠️ <b>吐き気は体感が強い</b>ので短めに。
   </p>
+</div>
+
+<div class="card" id="cardPrice">
+  <h3>値段（卸値の内訳）</h3>
+  <p class="hint">
+    🔴 <b>卸値は材料から自動で出します。</b> 売値はご自分で決めてください。<br>
+    ⚠️ <b>武器と防具だけ</b>、強さに対して材料が安すぎないかを見ます。
+  </p>
+  <div id="priceBox"></div>
+  <div class="row" style="margin-top:8px">
+    <label>売値</label>
+    <input id="price" type="number" min="0" step="1" value="0"
+           oninput="render()" style="width:140px">
+    <span class="hint">🔴 <b>0 なら卸値のまま売ります。</b>
+      ⚠️ <b>商人は卸値で仕入れられます。</b>差額が商人の利益です。</span>
+  </div>
 </div>
 
 <div class="card" id="cardOut">
@@ -928,10 +970,10 @@ function saveMaterials() {
  */
 function materialChoices() {
   const out = BUILTIN_MATERIALS.map(
-      m => ["shigoto-craft:" + m.id, m.name + "（中間素材）"]);
+      m => ["shigotocraft:" + m.id, m.name + "（中間素材）"]);
   const known = new Set(BUILTIN_MATERIALS.map(m => m.id));
   materials.filter(m => !known.has(m.id)).forEach(
-      m => out.push(["shigoto-craft:" + m.id, m.name + "（中間素材・未反映）"]));
+      m => out.push(["shigotocraft:" + m.id, m.name + "（中間素材・未反映）"]));
   return out;
 }
 
@@ -976,7 +1018,7 @@ function drawMaterials() {
     const t = document.createElement("span");
     t.textContent = m.name + "　";
     const id = document.createElement("span");
-    id.className = "muted"; id.textContent = "shigoto-craft:" + m.id + "（本番に入っています）";
+    id.className = "muted"; id.textContent = "shigotocraft:" + m.id + "（本番に入っています）";
     row.append(t, id);
     box.appendChild(row);
   });
@@ -992,7 +1034,7 @@ function drawMaterials() {
     t.textContent = m.name + "　";
     const id = document.createElement("span");
     id.className = "muted";
-    id.textContent = "shigoto-craft:" + m.id + "（まだ本番に入っていません）";
+    id.textContent = "shigotocraft:" + m.id + "（まだ本番に入っていません）";
     const del = document.createElement("button");
     del.className = "small danger"; del.textContent = "一覧から外す";
     del.onclick = () => forgetMaterial(m.id);
@@ -1291,7 +1333,24 @@ function setSide(s) {
  *
  * ⚠️ <b>描いた絵は残す。</b> 間違えて押したときに消えると取り返しがつかない。
  */
+/**
+ * 運営だけのタブ。
+ *
+ * <p>🔴 <b>参加者に見えるのは冒険者・料理人・建築家の3職ぶんだけ</b>
+ * （人間の指示 2026-08-23）。⚠️ <b>スキンは職業と関係ないので、いつでも見える。</b>
+ */
+const ADMIN_MODES = ["material", "clothes", "hata", "weapon", "armor", "medicine"];
+
 function setMode(m) {
+  // 🔴 <b>運営でないなら、運営だけのタブへは行かせない</b>（人間の指摘 2026-08-27）。
+  //    ⚠️ <b>タブの見た目を隠すだけでは足りなかった</b>――
+  //    洋服の定義を「読み込む」と、そのタブへ切り替わっていた。
+  //    ⚠️ <b>ここで止めれば、どの入口から来ても漏れない。</b>
+  if (!adminOn && ADMIN_MODES.includes(m)) {
+    alert("これは運営が作るものです。" + chr10() +
+          "上の「運営モード」を入れてから開いてください。");
+    m = "food";
+  }
   mode = m;
   document.getElementById("m-food").classList.toggle("on", m === "food");
   document.getElementById("m-block").classList.toggle("on", m === "block");
@@ -1336,6 +1395,11 @@ function setMode(m) {
     e => e.style.display = solid ? "" : "none");
   document.querySelectorAll(".only-furniture").forEach(
     e => e.style.display = (m === "furniture") ? "" : "none");
+  // 🔴 旗だけの欄。染料の入れ口と注意書き（2026-08-27）
+  ["dyeBtn", "dyeHint"].forEach(id => {
+    const e = document.getElementById(id);
+    if (e) { e.style.display = (m === "hata") ? "" : "none"; }
+  });
   document.querySelectorAll(".only-clothes").forEach(
     e => e.style.display = (m === "clothes") ? "" : "none");
   document.querySelectorAll(".only-weapon").forEach(
@@ -2266,12 +2330,12 @@ function setAdmin(on) {
   // 🔴 洋服と旗は運営だけ（人間の指示 2026-08-23）。
   //    参加者に見えるのは冒険者・料理人・建築家の3職ぶんだけ。
   //    ⚠️ スキンは職業と関係ないので、いつでも見える
-  ["m-clothes", "m-hata", "m-weapon", "m-armor", "m-medicine"].forEach(k => {
-    document.getElementById(k).style.display = on ? "" : "none";
+  ADMIN_MODES.filter(k => k !== "material").forEach(k => {
+    document.getElementById("m-" + k).style.display = on ? "" : "none";
   });
   // ⚠️ 運営モードを切ったら、隠したタブから出す
-  if (!on && ["material", "clothes", "hata", "weapon", "armor", "medicine"]
-      .includes(mode)) {
+  if (!on && ADMIN_MODES.includes(mode)) {
+    mode = "food";      // ⚠️ setMode の見張りに引っかからないよう、先に戻す
     setMode("food");
   }
   drawMaterials();
@@ -2389,6 +2453,82 @@ function drawItems() {
   if (add) { add.disabled = items.length >= max; }
 }
 
+/**
+ * バニラの染料16色。
+ *
+ * 🔴 <b>旗はこの色でしか染められない</b>（2026-08-27）。
+ * ⚠️ <b>描いた色は、いちばん近い染料に寄る。</b> 中間色はそのままでは出ない。
+ */
+const DYES = [
+  ["white",[249,255,254]], ["orange",[249,128,29]], ["magenta",[199,78,189]],
+  ["light_blue",[58,179,218]], ["yellow",[254,216,61]], ["lime",[128,199,31]],
+  ["pink",[243,139,170]], ["gray",[71,79,82]], ["light_gray",[157,157,151]],
+  ["cyan",[22,156,156]], ["purple",[137,50,184]], ["blue",[60,68,170]],
+  ["brown",[131,84,50]], ["green",[94,124,22]], ["red",[176,46,38]],
+  ["black",[29,29,33]],
+];
+
+/** #rrggbb を数の3つ組へ。⚠️ 読めなければ null。 */
+function rgbOf(css) {
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec((css || "").trim());
+  if (!m) { return null; }
+  return [parseInt(m[1],16), parseInt(m[2],16), parseInt(m[3],16)];
+}
+
+/** いちばん近い染料の名前。 */
+function nearestDye(css) {
+  const c = rgbOf(css);
+  if (!c) { return null; }
+  let best = null, gap = null;
+  DYES.forEach(([name, d]) => {
+    const g = (c[0]-d[0])**2 + (c[1]-d[1])**2 + (c[2]-d[2])**2;
+    if (gap === null || g < gap) { best = name; gap = g; }
+  });
+  return best;
+}
+
+/** 旗に使っている染料の名前（描いた順）。 */
+function hataDyes() {
+  const out = [];
+  const g = sides.flag;
+  for (let y = 0; y < HATA_H; y++) {
+    for (let x = 0; x < HATA_W; x++) {
+      const dye = nearestDye(g[y][x]);
+      if (dye && out.indexOf(dye) < 0) { out.push(dye); }
+    }
+  }
+  return out;
+}
+
+/**
+ * 使った色のぶんだけ、染料を材料へ入れる。
+ *
+ * <p>🔴 <b>使う色の数だけ染料が要る</b>（人間の指示 2026-08-27）。
+ * ⚠️ <b>Minecraft の旗は「1つの模様＝1色」</b>なので、色ごとに1枚ずつ重なる。
+ * ⚠️ <b>すでに入っている染料は増やさない。</b> 押すたびに増えると困る。
+ */
+function fillDyes() {
+  if (mode !== "hata") { return; }
+  const want = hataDyes();
+  let added = 0;
+  want.forEach(dye => {
+    const id = "minecraft:" + dye + "_dye";
+    if (items.some(e => e && e.item === id)) { return; }
+    if (items.length >= 9) { return; }
+    items.push({ item: id, count: 1 });
+    added++;
+  });
+  drawItems(); render();
+  if (added) {
+    alert("使っている色の染料を " + added + " 個 入れました。" + chr10() + chr10() +
+          "⚠️ 使う色の数だけ染料が要ります。" + chr10() +
+          "旗は「1つの模様＝1色」なので、色ごとに1枚ずつ重ねます。");
+  } else {
+    alert("足す染料はありませんでした。" + chr10() +
+          "（すでに入っているか、まだ色を塗っていません）");
+  }
+}
+
 function addItem() {
   const max = 9;   // ⚠️ 画面に収まる数。工房そのものに上限は無い
   if (items.length >= max) { return; }
@@ -2500,6 +2640,258 @@ const text = (t, c) => c ? { text:t, color:c, italic:false } : { text:t, italic:
  * ⚠️ <b>持ち主はアカウント名で書く。</b> 参加者は自分の UUID を知らない。
  * サーバー側が立ち上がったときに whitelist から引いてくれる。
  */
+// ══════════════════════════════════════════════════════════════
+//  値段（裁定 2026-08-24「素材レート表と価格破壊防止の判定式」）
+// ══════════════════════════════════════════════════════════════
+//
+// 🔴 この表はサーバー側（Tuning.java の defaultRates）と同じ中身です。
+//    ⚠️ どちらかだけ直すと、エディタの見積りと工房の値段が食い違います。
+//    合っているかは tools/check-rates.py が見ています。
+//
+// ⚠️ 村人交易のレートではありません。あちらは 銅250G > 鉄100G という
+//    逆転が出ます。鉄=100G を軸に組み直した梯子です。
+
+const RATES = {
+  "minecraft:cobblestone": 1,
+  "minecraft:stone": 2,
+  "minecraft:dirt": 1,
+  "minecraft:sand": 1,
+  "minecraft:stick": 1,
+  "minecraft:oak_log": 8,
+  "minecraft:spruce_log": 8,
+  "minecraft:birch_log": 8,
+  "minecraft:jungle_log": 8,
+  "minecraft:acacia_log": 8,
+  "minecraft:dark_oak_log": 8,
+  "minecraft:mangrove_log": 8,
+  "minecraft:cherry_log": 8,
+  "minecraft:pale_oak_log": 8,
+  "minecraft:crimson_stem": 8,
+  "minecraft:warped_stem": 8,
+  "minecraft:oak_planks": 2,
+  "minecraft:spruce_planks": 2,
+  "minecraft:birch_planks": 2,
+  "minecraft:jungle_planks": 2,
+  "minecraft:acacia_planks": 2,
+  "minecraft:dark_oak_planks": 2,
+  "minecraft:mangrove_planks": 2,
+  "minecraft:cherry_planks": 2,
+  "minecraft:pale_oak_planks": 2,
+  "minecraft:bamboo_planks": 2,
+  "minecraft:crimson_planks": 2,
+  "minecraft:warped_planks": 2,
+  "minecraft:wheat": 50,
+  "minecraft:carrot": 45,
+  "minecraft:potato": 38,
+  "minecraft:sugar_cane": 25,
+  "minecraft:cocoa_beans": 30,
+  "minecraft:egg": 20,
+  "minecraft:milk_bucket": 40,
+  "minecraft:beef": 60,
+  "minecraft:porkchop": 60,
+  "minecraft:chicken": 60,
+  "minecraft:mutton": 60,
+  "minecraft:rabbit": 60,
+  "minecraft:cod": 50,
+  "minecraft:salmon": 50,
+  "minecraft:coal": 30,
+  "minecraft:copper_ingot": 40,
+  "minecraft:iron_ingot": 100,
+  "minecraft:gold_ingot": 250,
+  "minecraft:redstone": 25,
+  "minecraft:lapis_lazuli": 30,
+  "minecraft:quartz": 35,
+  "minecraft:diamond": 1200,
+  "minecraft:emerald": 1000,
+  "minecraft:ancient_debris": 3000,
+  "minecraft:netherite_ingot": 13000,
+  "minecraft:leather": 150,
+  "minecraft:string": 50,
+  "minecraft:paper": 40,
+  "minecraft:book": 130,
+  "minecraft:gunpowder": 80,
+  "minecraft:ender_pearl": 300,
+  "minecraft:blaze_rod": 400,
+  "minecraft:white_wool": 55,
+  "minecraft:orange_wool": 55,
+  "minecraft:magenta_wool": 55,
+  "minecraft:light_blue_wool": 55,
+  "minecraft:yellow_wool": 55,
+  "minecraft:lime_wool": 55,
+  "minecraft:pink_wool": 55,
+  "minecraft:gray_wool": 55,
+  "minecraft:light_gray_wool": 55,
+  "minecraft:cyan_wool": 55,
+  "minecraft:purple_wool": 55,
+  "minecraft:blue_wool": 55,
+  "minecraft:brown_wool": 55,
+  "minecraft:green_wool": 55,
+  "minecraft:red_wool": 55,
+  "minecraft:black_wool": 55
+};
+
+// 値段が2倍になるエンチャント。⚠️ バニラの treasure タグとは中身が違います
+const TREASURE = ["minecraft:mending", "minecraft:silk_touch"];
+
+// エンチャントの最大レベル。🔴 最大Lvだと 1.5倍になります
+const ENCH_MAX = {
+  "minecraft:sharpness":5, "minecraft:smite":5, "minecraft:bane_of_arthropods":5,
+  "minecraft:impaling":5, "minecraft:breach":4, "minecraft:fire_aspect":2,
+  "minecraft:knockback":2, "minecraft:looting":3, "minecraft:sweeping_edge":3,
+  "minecraft:efficiency":5, "minecraft:fortune":3, "minecraft:silk_touch":1,
+  "minecraft:power":5, "minecraft:punch":2, "minecraft:flame":1, "minecraft:infinity":1,
+  "minecraft:piercing":4, "minecraft:multishot":1, "minecraft:quick_charge":3,
+  "minecraft:loyalty":3, "minecraft:channeling":1, "minecraft:riptide":3,
+  "minecraft:density":5, "minecraft:wind_burst":3, "minecraft:lunge":3,
+  "minecraft:protection":4, "minecraft:fire_protection":4,
+  "minecraft:blast_protection":4, "minecraft:projectile_protection":4,
+  "minecraft:feather_falling":4, "minecraft:thorns":3, "minecraft:respiration":3,
+  "minecraft:aqua_affinity":1, "minecraft:depth_strider":3, "minecraft:frost_walker":2,
+  "minecraft:soul_speed":3, "minecraft:swift_sneak":3,
+  "minecraft:unbreaking":3, "minecraft:mending":1
+};
+
+// 適正コストの基準点（性能 → G）。⚠️ 金は外れ値なので入っていません
+const CURVE = [[1500, 201], [10927, 2401], [16248, 15401]];
+const JUDGE_FROM = 1500;
+const JUDGE_RATIO = 0.80;
+
+// 🔴 防具は着るところごとに別の曲線です（人間の判断 2026-08-24）。
+//    1本にまとめられません。鉄の胴は 性能1440 で 800G、ダイヤの足は
+//    性能1287 で 4,800G――ほぼ同じ性能で6倍の値段なので、
+//    1本の線に乗せるとどちらかが必ず誤判定になります。
+//    ⚠️ 作り方は武器と同じ。性能＝防御力×耐久、値段＝バニラのレシピ代。
+const ARMOR_CURVE = {
+  head:  [[330, 500], [1089, 6000], [1221, 19000]],
+  chest: [[1440, 800], [4224, 9600], [4736, 22600]],
+  legs:  [[1125, 700], [2970, 8400], [3330, 21400]],
+  feet:  [[390, 400], [1287, 4800], [1443, 17800]]
+};
+// 判定を始める性能。⚠️ その部位の鉄そのもの
+const ARMOR_FROM = { head: 330, chest: 1440, legs: 1125, feet: 390 };
+
+/** 見せ方を1つに揃える。⚠️ 桁が多いので区切りを入れる。 */
+function showG(n) { return Math.round(n).toLocaleString("en-US") + "G"; }
+
+/**
+ * エンチャント1つぶんの G。
+ *
+ * 🔴 司書の実価格。バニラの式 2 + 3×Lv + 乱数(0-4)、最大Lvで1.5倍、
+ *    トレジャー系はさらに2倍、5〜64エメラルドにクランプ。
+ * ⚠️ 乱数は使わず真ん中の 2 で固定します。値段が引くたびに変わっては
+ *    値付けになりません。この置き方で裁定の表の5行すべてが一致します。
+ */
+function enchG(id, lv) {
+  lv = lv || 1;
+  let p = 2 + 3 * lv + 2;
+  const max = ENCH_MAX[id] || 0;
+  if (max > 0 && lv >= max) { p = Math.floor(p * 1.5); }
+  if (TREASURE.indexOf(id) >= 0) { p *= 2; }
+  p = Math.max(5, Math.min(64, p));
+  return p * 1000;
+}
+
+/** その性能に見合う素材コスト。⚠️ 上は最後の傾きで伸ばします。 */
+function properG(power, curve) {
+  const c = curve || CURVE;
+  if (power <= c[0][0]) { return c[0][1]; }
+  for (let i = 1; i < c.length; i++) {
+    const a = c[i - 1], b = c[i];
+    if (power <= b[0]) { return a[1] + (b[1] - a[1]) * ((power - a[0]) / (b[0] - a[0])); }
+  }
+  const l = c[c.length - 1], p = c[c.length - 2];
+  return l[1] + (power - l[0]) * ((l[1] - p[1]) / (l[0] - p[0]));
+}
+
+/**
+ * いまの中身の値段。
+ *
+ * 🔴 卸値 = 材料ぶん + エンチャントぶん。売値は作る人が決めます。
+ * ⚠️ 判定に使うのは材料ぶんだけ。素材が安くてもエンチャントで
+ *    高くなるのは正常です。
+ */
+function priceNow() {
+  const lines = items.filter(i => i && i.item).map(i => {
+    const unit = RATES[i.item] || 0;
+    const count = i.count || 1;
+    return { item: i.item, count: count, unit: unit,
+             total: unit * count, unknown: !(i.item in RATES) };
+  });
+  const material = lines.reduce((a, l) => a + l.total, 0);
+  const chosen = (typeof picked !== "undefined" && picked) ? picked : [];
+  const ench = chosen.reduce((a, id) => a + enchG(id, 1), 0);
+
+  const armor = (mode === "armor");
+  const weapon = (mode === "weapon" || armor);
+  const dur = Number(val("durability")) || 0;
+  // 🔴 武器は攻撃力×耐久、防具は防御力×耐久
+  const power = armor ? (Number(val("armor")) || 0) * dur
+              : weapon ? (Number(val("damage")) || 0) * dur : 0;
+  const wear = armor ? (["head","legs","feet"].indexOf(val("wear")) >= 0
+                        ? val("wear") : "chest") : null;
+  const curve = armor ? ARMOR_CURVE[wear] : CURVE;
+  const floor = armor ? ARMOR_FROM[wear] : JUDGE_FROM;
+  const judged = weapon && floor > 0 && power >= floor;
+  const proper = judged ? properG(power, curve) : 0;
+  const ratio = (judged && proper > 0) ? material / proper : 1;
+  return { lines: lines, material: material, ench: ench, total: material + ench,
+           chosen: chosen, weapon: weapon, power: power, judged: judged,
+           proper: proper, ratio: ratio, floor: floor,
+           ng: judged && ratio < JUDGE_RATIO };
+}
+
+/** 値段の内訳を描く。⚠️ 基準を下回るときは保存を止めます。 */
+function drawPrice() {
+  const box = document.getElementById("priceBox");
+  if (!box) { return; }
+  let p;
+  try { p = priceNow(); } catch (e) { box.textContent = ""; return; }
+  const rows = [];
+  p.lines.forEach(l => {
+    rows.push("<div class='line'><span>" + l.item + " ×" + l.count + "</span>"
+      + "<span class='muted'>" + showG(l.unit) + " → " + showG(l.total)
+      + (l.unknown ? " 🔴 表にありません" : "") + "</span></div>");
+  });
+  if (!rows.length) { rows.push("<div class='muted'>材料がまだありません。</div>"); }
+  rows.push("<div class='line'><b>材料ぶん</b><b>" + showG(p.material) + "</b></div>");
+  if (p.ench > 0) {
+    p.chosen.forEach(id => {
+      rows.push("<div class='line'><span class='muted'>" + id + "</span>"
+        + "<span class='muted'>" + showG(enchG(id, 1)) + "</span></div>");
+    });
+    rows.push("<div class='line'><b>エンチャントぶん</b><b>"
+      + showG(p.ench) + "</b></div>");
+  }
+  rows.push("<div class='line'><b>卸値（初期値）</b><b>" + showG(p.total) + "</b></div>");
+
+  if (p.weapon) {
+    if (!p.judged) {
+      rows.push("<div class='muted'>性能 " + Math.round(p.power)
+        + "　判定なし（" + Math.round(p.floor) + " 未満）</div>");
+    } else {
+      const pct = Math.round(p.ratio * 100);
+      rows.push("<div class='line'><span>性能 " + Math.round(p.power)
+        + "　適正 " + showG(p.proper) + "</span><b style='color:"
+        + (p.ng ? "#c00" : "#080") + "'>" + pct + "％</b></div>");
+      if (p.ng) {
+        rows.push("<p class='hint' style='color:#c00'>🔴 <b>素材が安すぎます。</b>"
+          + "この強さなら <b>" + showG(p.proper * JUDGE_RATIO)
+          + "</b> 以上の材料が要ります。<br>"
+          + "⚠️ 材料を増やすか、攻撃力か耐久を下げてください。"
+          + "<b>エンチャントは判定に入りません。</b></p>");
+      }
+    }
+  }
+  box.innerHTML = rows.join("");
+
+  // 🔴 基準を下回るときは保存させない。⚠️ 運営モードなら通す
+  const btn = document.getElementById("saveBtn");
+  if (btn) {
+    btn.disabled = p.ng && !admin();
+    btn.title = btn.disabled ? "素材が安すぎるので保存できません" : "";
+  }
+}
+
 function goods() {
   const g = {
     id: val("id").trim(),
@@ -2516,10 +2908,23 @@ function goods() {
       .filter(i => i && i.item)
       .map(i => ({ item: i.item, count: i.count || 1 })),
   };
+  // 🔴 卸値は材料から自動で出す（裁定 2026-08-24）。売値は作る人が決める
+  try {
+    const p = priceNow();
+    g.wholesale = Math.round(p.total);
+    g.price = Number(val("price")) || 0;
+  } catch (e) {
+    g.wholesale = 0;
+    g.price = 0;
+  }
   if (mode === "hata") {
     // 🔴 旗は枠を使わない。バニラの旗に模様を1枚載せるだけ
     //    ⚠️ 硬さも音も明るさも要らない（ブロックにならないため）
     return g;
+  }
+  if (mode === "block" || mode === "furniture") {
+    // 🔴 建材の手触り（人間の希望 2026-08-24）。空ならふつうの石
+    g.feel = val("feel") || "";
   }
   if (mode === "clothes") {
     // 🔴 着るところと重ね順。⚠️ これが無いと胴の扱いになる
@@ -2599,7 +3004,7 @@ function goods() {
 /**
  * 建材の置き方。
  *
- * ⚠️ <b>ブロックは `shigoto-craft` の名前で登録される</b>ので、置き方の指定も
+ * ⚠️ <b>ブロックは `shigotocraft` の名前で登録される</b>ので、置き方の指定も
  * そちらの名前空間へ置く。絵とモデルは `sukecra` のまま。
  */
 /**
@@ -2979,6 +3384,8 @@ function render() {
       "押し出して</b>手に持たせるので、描いた絵がそのまま立体になります。<br>" +
       "⚠️ <b>裏は表の鏡写し</b>です。別にしたいときは上の「裏面を別の絵にする」を入れてください。";
   document.getElementById("out").value = JSON.stringify(goods(), null, 2);
+  // 🔴 値段は中身が変わるたびに出し直す（裁定 2026-08-24）
+  drawPrice();
   showOverflow();
   showBoxes();
   showDps();
@@ -3464,6 +3871,22 @@ function saveAll() {
   const id = val("id").trim();
   if (!/^[a-z0-9_]+$/.test(id)) {
     alert("ID は半角の英数字と _ だけにしてください。");
+    return;
+  }
+  // 🔴 足りないものはここで止める（2026-08-26）。
+  //    ⚠️ 前は何も見ずに出していたので、配る段になってから
+  //    「材料が1つも書かれていません」で弾かれ、描き直しになっていた。
+  //    見るものは publish.py と同じ。
+  const lacks = [];
+  if (!val("name").trim()) { lacks.push("名前"); }
+  if (!val("owner").trim()) { lacks.push("持ち主"); }
+  if (mode !== "hata" && !items.filter(i => i && i.item).length) {
+    lacks.push("材料（「材料を足す」を押して、1つ以上）");
+  }
+  if (lacks.length) {
+    alert("このままでは登録できません。" + chr10() + chr10() +
+          "足りないもの：" + lacks.join("、") + chr10() + chr10() +
+          "⚠️ 揃えてからもう一度「一式を保存」を押してください。");
     return;
   }
   download(id + ".json", JSON.stringify(goods(), null, 2));
