@@ -138,6 +138,7 @@
       <button id="t-erase" onclick="setTool('erase')">消しゴム</button>
       <button id="t-fill" onclick="setTool('fill')">塗りつぶし</button>
       <button id="t-pick" onclick="setTool('pick')">スポイト</button>
+      <button id="t-noise" onclick="setTool('noise')">ざらつき</button>
       <span class="spacer"></span>
       <button class="primary small" onclick="undo()">⟲ 元に戻す</button>
       <button class="small danger" id="clearBtn" onclick="clearAll()">全部消す</button>
@@ -146,6 +147,20 @@
     </div>
 
     <canvas id="paint" width="384" height="384"></canvas>
+
+    <div class="row" style="margin-top:10px">
+      <span class="muted" style="min-width:0">太さ</span>
+      <button class="small on" id="w-1" onclick="setPenSize(1)">1マス</button>
+      <button class="small" id="w-2" onclick="setPenSize(2)">4マス</button>
+      <button class="small" id="w-3" onclick="setPenSize(3)">9マス</button>
+      <span class="muted" id="noiseBox" style="display:none; min-width:0">
+        ばらつき
+        <input type="range" id="noise" min="10" max="100" step="10" value="40"
+               style="width:96px; vertical-align:middle"
+               oninput="setNoise(this.value)">
+        <span id="noiseNow">40%</span>
+      </span>
+    </div>
 
     <div class="row" style="margin-top:10px">
       <span class="swatch-now" id="now"></span>
@@ -162,7 +177,10 @@
     <div class="palette" id="palette"></div>
     <p class="hint">
       ドラッグで続けて塗れます。🔴 <b>透明にするのは消しゴム。</b>市松模様が透明です。<br>
-      ⚠️ 縁を1マス透明にしておくと、手に持ったときの形が締まります。
+      ⚠️ 縁を1マス透明にしておくと、手に持ったときの形が締まります。<br>
+      🔴 <b>ざらつきは、選んだ色の濃さを1マスずつばらして塗ります。</b>
+      石や木の質感を出すのに使ってください。
+      ⚠️ <b>ばらつきを上げるほど、明るい粒と暗い粒の差が開きます。</b>
     </p>
   </div>
 
@@ -290,7 +308,7 @@
   </div>
   <div class="row only-weapon" style="display:none">
     <label>武器種</label>
-    <select id="base" onchange="drawEnchants(); render()"></select>
+    <select id="base" onchange="drawEnchants(); drawItems(); render()"></select>
     <span class="hint" id="baseHint" style="flex:1"></span>
   </div>
   <div class="row only-weapon" style="display:none">
@@ -353,7 +371,7 @@
   </div>
   <div class="row only-clothes" style="display:none">
     <label>着るところ</label>
-    <select id="wear" onchange="render()">
+    <select id="wear" onchange="drawItems(); render()">
       <option value="head">頭</option>
       <option value="chest">胴</option>
       <option value="legs">脚</option>
@@ -437,17 +455,17 @@
 <div class="card" id="cardPrice">
   <h3>値段（卸値の内訳）</h3>
   <p class="hint">
-    🔴 <b>卸値は材料から自動で出します。</b> 売値はご自分で決めてください。<br>
+    🔴 <b>卸値は材料から自動で出します。</b> ここで決めることはありません。<br>
     ⚠️ <b>武器と防具だけ</b>、強さに対して材料が安すぎないかを見ます。
   </p>
   <div id="priceBox"></div>
-  <div class="row" style="margin-top:8px">
-    <label>売値</label>
-    <input id="price" type="number" min="0" step="1" value="0"
-           oninput="render()" style="width:140px">
-    <span class="hint">🔴 <b>0 なら卸値のまま売ります。</b>
-      ⚠️ <b>商人は卸値で仕入れられます。</b>差額が商人の利益です。</span>
-  </div>
+  <p class="hint" style="margin-top:8px">
+    🔴 <b>いくらで売るかは、売る場所で決めます</b>（人間の判断 2026-08-27）。<br>
+    自動販売機は<b>台ごとに値段を決めて</b>置きます。
+    対面で売るときは<b>その場で額を決めます</b>――⚠️ <b>そのとき、売る側にだけ
+    「材料ぶんの合計」が出ます</b>ので、それを目安にしてください。<br>
+    ⚠️ <b>商人はこの卸値で仕入れられます。</b>売った額との差が商人の利益です。
+  </p>
 </div>
 
 <div class="card" id="cardOut">
@@ -613,6 +631,10 @@ const ENCHANTS = [
  * ⚠️ <b>バニラの決まり。</b> 付けても片方しか効かないので、その場で伝える。
  * 🔴 <b>26.2 の {@code exclusive_set} をそのまま写した</b>（2026-08-24 に読んだ）。
  */
+/* 🔴 <b>同時に付けられない組は、もう止めません</b>（人間の指示 2026-08-27）。
+   ⚠️ <b>エンチャントとしてではなく、武器そのものの性能として持たせる</b>ので、
+   バニラの排他は効きません。<b>虫特効とアンデッド特効を1本に載せられます。</b>
+   ⚠️ この表は「バニラでは選べない組み合わせだ」と伝えるためだけに残してあります。 */
 const ENCHANT_CLASH = [
   ["minecraft:sharpness", "minecraft:smite", "minecraft:bane_of_arthropods",
    "minecraft:impaling", "minecraft:density", "minecraft:breach"],
@@ -1131,13 +1153,88 @@ function setColor(c) {
   document.getElementById("now").style.background = color;
   document.getElementById("picker").value = color.slice(0, 7);
   remember(color);
+  // ⚠️ ざらつきのままにしておく。色を選び直しただけで道具が変わると驚く
   if (tool === "erase" || tool === "pick") { setTool("pen"); }
 }
 
 function setTool(t) {
   tool = t;
-  ["pen","erase","fill","pick"].forEach(
+  ["pen","erase","fill","pick","noise"].forEach(
     k => document.getElementById("t-"+k).classList.toggle("on", k===t));
+  // 🔴 ばらつきのつまみは、ざらつきを選んだときだけ出す
+  const box = document.getElementById("noiseBox");
+  if (box) { box.style.display = (t === "noise") ? "" : "none"; }
+}
+
+/**
+ * ペンの太さ（1マス／4マス／9マス）。
+ *
+ * 🔴 <b>持つのは一辺のマス数</b>（1・2・3）。⚠️ 見せる数は面積のほう。
+ * 「4マス」と言われて 2×2 が出るのは分かるが、「2」では分からない。
+ */
+let penSize = 1;
+
+function setPenSize(n) {
+  penSize = n;
+  [1,2,3].forEach(k => {
+    const b = document.getElementById("w-" + k);
+    if (b) { b.classList.toggle("on", k === n); }
+  });
+}
+
+/**
+ * 「ざらつき」の強さ（10〜100）。
+ *
+ * 🔴 <b>色そのものは変えない。明るさだけをばらす。</b>
+ * ⚠️ <b>色相まで振ると、石が虹色になる。</b>
+ * 明るい側は白へ、暗い側は黒へ寄せているので、<b>濁らずに粒が立つ</b>。
+ */
+let noiseAmount = 40;
+
+function setNoise(v) {
+  noiseAmount = Number(v) || 40;
+  const now = document.getElementById("noiseNow");
+  if (now) { now.textContent = noiseAmount + "%"; }
+}
+
+/**
+ * その色を、1マスぶんだけ明るさをずらした色にする。
+ *
+ * 🔴 <b>濃さ（透け具合）はそのまま持ち越す。</b>
+ * ⚠️ <b>ずらすのは呼ぶたび。</b> 同じ色を渡しても毎回ちがう色が返る――
+ * それが「ざらつき」の正体。
+ *
+ * ⚠️ <b>最大でも 45% までしか寄せない。</b> 振り切ると真っ白と真っ黒になり、
+ * 質感ではなく<b>ただの汚れ</b>に見える。
+ */
+function noisy(base) {
+  const tail = (base.length > 7) ? base.slice(7) : "";
+  const k = (Math.random() * 2 - 1) * (noiseAmount / 100) * 0.45;
+  const shift = v => {
+    const nv = (k >= 0) ? v + (255 - v) * k : v * (1 + k);
+    return Math.max(0, Math.min(255, Math.round(nv)));
+  };
+  let out = "#";
+  for (let i = 1; i < 7; i += 2) {
+    out += shift(parseInt(base.slice(i, i + 2), 16)).toString(16).padStart(2, "0");
+  }
+  return out + tail;
+}
+
+/**
+ * 太さのぶんだけ、塗るマスを並べる。
+ *
+ * 🔴 <b>奇数の太さは真ん中を、偶数は右下を起点にする。</b>
+ * ⚠️ <b>偶数に「真ん中」は無い。</b> どちらかに寄せるしかないので、
+ * <b>カーソルの位置がいつも塗られる側</b>に寄せてある。
+ */
+function brushCells(x, y) {
+  const off = (penSize % 2 === 1) ? -((penSize - 1) / 2) : 0;
+  const out = [];
+  for (let dy = 0; dy < penSize; dy++) {
+    for (let dx = 0; dx < penSize; dx++) { out.push([x + dx + off, y + dy + off]); }
+  }
+  return out;
 }
 
 /**
@@ -1447,7 +1544,9 @@ function setMode(m) {
   document.querySelectorAll(".pose").forEach(
     e => e.style.display = isSkin() ? "" : "none");
   // 🔴 スキンは品物ではない。名前も材料も要らない
-  ["cardGoods", "cardRecipe", "cardOut"].forEach(k => {
+  // 🔴 <b>スキンは品物ではない。</b> 名前も材料も値段も要らない
+  //    （人間の指示 2026-08-28。値段のカードも隠す）
+  ["cardGoods", "cardRecipe", "cardOut", "cardPrice"].forEach(k => {
     const e = document.getElementById(k);
     if (e) { e.style.display = (m === "skin") ? "none" : ""; }
   });
@@ -1463,6 +1562,8 @@ function setMode(m) {
   drawEnchants();
   if (flat) { fillBackIfEmpty(); }
   drawMaterials();
+  // 🔴 材料の一覧はタブで変わる（2026-08-27）。切り替えたら描き直す
+  drawItems();
   if (solid) {
     syncBlockFaces();
     // ⚠️ 正面から見ると板にしか見えない。角が見える向きにしておく
@@ -1590,14 +1691,25 @@ function cellAt(ev) {
 
 function apply(x, y) {
   const g = grid();
-  // 🔴 洋服は窓ごしに塗る。窓の左上ぶんをずらす
-  x += gx(); y += gy();
   // ⚠️ 描いた面は自動をやめる。描いたそばから上書きされたら意味がない
   if (mode === "block" && auto[side]) { auto[side] = false; drawSideRow(); }
-  if (tool === "pen") { g[y][x] = color; }
-  else if (tool === "erase") { g[y][x] = null; }
-  else if (tool === "pick") { if (g[y][x]) { setColor(g[y][x]); } }
-  else if (tool === "fill") { flood(g, x, y, g[y][x]); }
+  // 🔴 スポイトと塗りつぶしは1マスぶん。太さは効かない
+  if (tool === "pick") {
+    const c = g[y + gy()][x + gx()];
+    if (c) { setColor(c); }
+  } else if (tool === "fill") {
+    flood(g, x + gx(), y + gy(), g[y + gy()][x + gx()]);
+  } else {
+    brushCells(x, y).forEach(([bx, by]) => {
+      // ⚠️ 窓の外へはみ出さない。よその部位まで塗ってしまう
+      if (bx < 0 || by < 0 || bx >= gw() || by >= gh()) { return; }
+      // 🔴 洋服は窓ごしに塗る。窓の左上ぶんをずらす
+      const px = bx + gx(), py = by + gy();
+      if (tool === "pen") { g[py][px] = color; }
+      else if (tool === "erase") { g[py][px] = null; }
+      else if (tool === "noise") { g[py][px] = noisy(color); }
+    });
+  }
   if (mode === "block" && side === "north") { syncBlockFaces(); }
   drawPaint();
 }
@@ -1616,19 +1728,47 @@ function flood(g, x, y, from) {
   }
 }
 
+/**
+ * 前に塗ったマス。
+ *
+ * 🔴 <b>速く動かすと、途中のマスが飛ぶ。</b> ブラウザは指の位置を
+ * 何十分の一秒かごとにしか教えてくれないため。
+ * ⚠️ <b>太いペンほど、飛んだ穴が目立つ。</b> だから前の場所とつなぐ。
+ */
+let lastCell = null;
+
+/**
+ * 前のマスから今のマスまで、まっすぐ塗る。
+ *
+ * ⚠️ <b>同じマスに留まっているときは塗り直さない。</b>
+ * ざらつきは<b>塗るたびに色が変わる</b>ので、留まるだけでちらついてしまう。
+ */
+function strokeTo(c) {
+  if (!lastCell) { apply(c[0], c[1]); lastCell = c; return; }
+  const [x0, y0] = lastCell, [x1, y1] = c;
+  const steps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
+  if (steps === 0) { return; }
+  for (let i = 1; i <= steps; i++) {
+    apply(Math.round(x0 + (x1 - x0) * i / steps),
+          Math.round(y0 + (y1 - y0) * i / steps));
+  }
+  lastCell = c;
+}
+
 paint.addEventListener("pointerdown", ev => {
   const c = cellAt(ev);
   if (!c) { return; }
   snapshot(); drawing = true;
   paint.setPointerCapture(ev.pointerId);
+  lastCell = c;
   apply(c[0], c[1]);
 });
 paint.addEventListener("pointermove", ev => {
   const c = cellAt(ev);
   document.getElementById("pos").textContent = c ? (c[0] + ", " + c[1]) : "—";
-  if (drawing && c && tool !== "pick" && tool !== "fill") { apply(c[0], c[1]); }
+  if (drawing && c && tool !== "pick" && tool !== "fill") { strokeTo(c); }
 });
-paint.addEventListener("pointerup", () => { drawing = false; });
+paint.addEventListener("pointerup", () => { drawing = false; lastCell = null; });
 paint.addEventListener("pointerleave", () => {
   document.getElementById("pos").textContent = "—";
 });
@@ -2179,7 +2319,7 @@ function loop(t) {
  * ⚠️ <b>ここに無いものは「じかに書く」で入れられる。</b> 一覧は網羅ではなく、
  * よく使うものを手早く選ぶための近道。
  */
-const ITEM_GROUPS = [
+const FOOD_GROUPS = [
   ["畑のもの（バニラ）", [
     ["minecraft:wheat","小麦"],["minecraft:carrot","ニンジン"],
     ["minecraft:potato","ジャガイモ"],["minecraft:beetroot","ビートルート"],
@@ -2254,9 +2394,163 @@ const ITEM_GROUPS = [
   ]]
 ];
 
-/** 一覧に載っている ID かどうか。載っていなければ「じかに書く」で扱う。 */
+/**
+ * 材料に選べるもの（食べ物でないほう）。
+ *
+ * 🔴 <b>建材・家具・武器・防具は、ブロックと鉱石から選ぶ</b>（人間の指示 2026-08-27）。
+ * ⚠️ <b>料理の材料が出ていた。</b> 石の家を建てるのにトマトを選ばせていた。
+ *
+ * 🔴 <b>並んでいるのは、値段の表に載っているものだけ。</b>
+ * ⚠️ <b>表に無いものを選ぶと卸値が 0 になる</b>ので、一覧には出さない。
+ * ⚠️ <b>それでも使いたいものは「じかに書く」で入れられる</b>（🔴 が出る）。
+ */
+const CRAFT_GROUPS = [
+  ["石・土", [
+    ["minecraft:cobblestone","丸石"],["minecraft:stone","石"],
+    ["minecraft:dirt","土"],["minecraft:sand","砂"]
+  ]],
+  ["原木", [
+    ["minecraft:oak_log","オークの原木"],["minecraft:spruce_log","トウヒの原木"],
+    ["minecraft:birch_log","シラカバの原木"],["minecraft:jungle_log","ジャングルの原木"],
+    ["minecraft:acacia_log","アカシアの原木"],["minecraft:dark_oak_log","ダークオークの原木"],
+    ["minecraft:mangrove_log","マングローブの原木"],["minecraft:cherry_log","サクラの原木"],
+    ["minecraft:pale_oak_log","ペイルオークの原木"],
+    ["minecraft:crimson_stem","真紅の幹"],["minecraft:warped_stem","歪んだ幹"]
+  ]],
+  ["板材・棒", [
+    ["minecraft:stick","棒"],
+    ["minecraft:oak_planks","オークの板"],["minecraft:spruce_planks","トウヒの板"],
+    ["minecraft:birch_planks","シラカバの板"],["minecraft:jungle_planks","ジャングルの板"],
+    ["minecraft:acacia_planks","アカシアの板"],["minecraft:dark_oak_planks","ダークオークの板"],
+    ["minecraft:mangrove_planks","マングローブの板"],["minecraft:cherry_planks","サクラの板"],
+    ["minecraft:pale_oak_planks","ペイルオークの板"],["minecraft:bamboo_planks","竹の板"],
+    ["minecraft:crimson_planks","真紅の板"],["minecraft:warped_planks","歪んだ板"]
+  ]],
+  ["鉱石・金属", [
+    ["minecraft:coal","石炭"],["minecraft:copper_ingot","銅インゴット"],
+    ["minecraft:iron_ingot","鉄インゴット"],["minecraft:gold_ingot","金インゴット"],
+    ["minecraft:redstone","レッドストーン"],["minecraft:lapis_lazuli","ラピスラズリ"],
+    ["minecraft:quartz","ネザークォーツ"],["minecraft:diamond","ダイヤモンド"],
+    ["minecraft:emerald","エメラルド"],["minecraft:ancient_debris","古代の残骸"],
+    ["minecraft:netherite_ingot","ネザライトインゴット"]
+  ]],
+  ["羊毛", [
+    ["minecraft:white_wool","白い羊毛"],["minecraft:orange_wool","橙色の羊毛"],
+    ["minecraft:magenta_wool","赤紫色の羊毛"],["minecraft:light_blue_wool","空色の羊毛"],
+    ["minecraft:yellow_wool","黄色の羊毛"],["minecraft:lime_wool","黄緑色の羊毛"],
+    ["minecraft:pink_wool","桃色の羊毛"],["minecraft:gray_wool","灰色の羊毛"],
+    ["minecraft:light_gray_wool","薄灰色の羊毛"],["minecraft:cyan_wool","青緑色の羊毛"],
+    ["minecraft:purple_wool","紫色の羊毛"],["minecraft:blue_wool","青色の羊毛"],
+    ["minecraft:brown_wool","茶色の羊毛"],["minecraft:green_wool","緑色の羊毛"],
+    ["minecraft:red_wool","赤色の羊毛"],["minecraft:black_wool","黒色の羊毛"]
+  ]],
+  ["そのほか", [
+    ["minecraft:leather","革"],["minecraft:string","糸"],
+    ["minecraft:paper","紙"],["minecraft:book","本"],
+    ["minecraft:gunpowder","火薬"],["minecraft:ender_pearl","エンダーパール"],
+    ["minecraft:blaze_rod","ブレイズロッド"]
+  ]]
+];
+
+/**
+ * いま作っているものに合う材料の一覧。
+ *
+ * 🔴 <b>料理と中間素材と薬だけが食べ物の一覧。</b> ほかはブロックと鉱石。
+ * ⚠️ <b>注射器は薬の品目だが、組み立て方は武器と同じ</b>なので素材側。
+ */
+/** まとめたブロックの日本語。⚠️ サーバーが値打ちを出せたものだけ並べます。 */
+const BLOCK_JA = {
+  "minecraft:diamond_block": "ダイヤブロック",
+  "minecraft:emerald_block": "エメラルドブロック",
+  "minecraft:gold_block": "金ブロック",
+  "minecraft:iron_block": "鉄ブロック",
+  "minecraft:copper_block": "銅ブロック",
+  "minecraft:netherite_block": "ネザライトブロック",
+  "minecraft:coal_block": "石炭ブロック",
+  "minecraft:redstone_block": "レッドストーンブロック",
+  "minecraft:lapis_block": "ラピスラズリブロック",
+  "minecraft:quartz_block": "クォーツブロック",
+  "minecraft:hay_block": "干草の俵",
+  "minecraft:bone_block": "骨ブロック",
+  "minecraft:slime_block": "スライムブロック",
+  "minecraft:honey_block": "ハチミツブロック",
+  "minecraft:ice": "氷", "minecraft:packed_ice": "氷塊",
+  "minecraft:blue_ice": "青氷", "minecraft:obsidian": "黒曜石",
+  "minecraft:glass": "ガラス", "minecraft:glowstone": "グロウストーン",
+  "minecraft:sea_lantern": "シーランタン", "minecraft:prismarine": "プリズマリン",
+  "minecraft:amethyst_block": "アメジストブロック",
+  "minecraft:bricks": "レンガ", "minecraft:terracotta": "テラコッタ",
+  "minecraft:clay": "粘土",
+  // ── 家具に使う道具ぶん（人間の指示 2026-08-28） ──
+  "minecraft:chest": "チェスト", "minecraft:barrel": "樽",
+  "minecraft:crafting_table": "作業台", "minecraft:furnace": "かまど",
+  "minecraft:smoker": "燻製器", "minecraft:blast_furnace": "溶鉱炉",
+  "minecraft:bookshelf": "本棚", "minecraft:ladder": "はしご",
+  "minecraft:torch": "たいまつ", "minecraft:lantern": "ランタン",
+  "minecraft:chain": "鎖", "minecraft:iron_bars": "鉄格子",
+  "minecraft:glass_pane": "板ガラス", "minecraft:cauldron": "大釜",
+  "minecraft:anvil": "金床", "minecraft:campfire": "焚き火",
+  "minecraft:jukebox": "ジュークボックス", "minecraft:note_block": "音符ブロック",
+  "minecraft:bell": "鐘", "minecraft:flower_pot": "植木鉢",
+  "minecraft:item_frame": "額縁",
+  "minecraft:oak_fence": "オークのフェンス",
+  "minecraft:oak_fence_gate": "オークのフェンスゲート",
+  "minecraft:oak_door": "オークのドア", "minecraft:oak_trapdoor": "オークのトラップドア",
+  "minecraft:oak_sign": "オークの看板",
+  "minecraft:oak_stairs": "オークの階段", "minecraft:oak_slab": "オークのハーフ",
+  "minecraft:stone_stairs": "石の階段", "minecraft:stone_slab": "石のハーフ",
+  "minecraft:brewing_stand": "醸造台", "minecraft:smithing_table": "鍛冶台",
+  "minecraft:loom": "機織り機", "minecraft:cartography_table": "製図台",
+  "minecraft:fletching_table": "矢細工台", "minecraft:grindstone": "砥石",
+  "minecraft:stonecutter": "石切台", "minecraft:composter": "コンポスター",
+  "minecraft:lectern": "書見台"
+};
+
+/**
+ * 材料に選べるブロック。
+ *
+ * 🔴 <b>値打ちの出せたものだけ並べます</b>（人間の指示 2026-08-28）。
+ * ⚠️ <b>値打ちが 0 のものは出しません</b>――
+ * 選んでも<b>卸値に乗らない</b>ので、選べると誤解のもとになります。
+ */
+function blockGroup() {
+  const list = [];
+  Object.keys(BASELINE.blocks || {}).forEach(id => {
+    if ((BASELINE.blocks[id] || 0) > 0 && BLOCK_JA[id]) {
+      list.push([id, BLOCK_JA[id]]);
+    }
+  });
+  return list.length ? [["ブロック・道具", list]] : [];
+}
+
+function itemGroups() {
+  if (mode === "food" || mode === "material") { return FOOD_GROUPS; }
+  if (mode === "medicine" && !isSyringe()) { return FOOD_GROUPS; }
+  // 🔴 <b>ブロックと道具は、建材にも家具にも出す</b>（人間の指示 2026-08-28）。
+  //    ⚠️ <b>チェストやフェンスを家具の材料にしたい</b>ため。
+  if (mode !== "weapon" && mode !== "armor") {
+    return CRAFT_GROUPS.concat(blockGroup());
+  }
+  // 🔴 <b>もとになる武器・防具を先頭に出します</b>（人間の指示 2026-08-27／28）。
+  //    ⚠️ <b>入れないと作れません</b>ので、いちばん探されるところに置きます。
+  const want = (mode === "armor") ? armorWear() : (val("base") || "sword");
+  const mine = mirrorsFor(want)
+      .map(pair => [pair[0], mirrorLabel(pair[0], pair[1])]);
+  const label = (mode === "armor") ? "もとになる防具（必須）" : "もとになる武器（必須）";
+  const groups = CRAFT_GROUPS.concat(blockGroup());
+  return mine.length ? [[label, mine]].concat(groups) : groups;
+}
+
+/**
+ * 一覧に載っている ID かどうか。載っていなければ「じかに書く」で扱う。
+ *
+ * ⚠️ <b>タブに関係なく、どちらの一覧も見る。</b> 今のタブだけで見ると、
+ * <b>読み込んだ品物の材料が「じかに書く」に落ちて見える</b>。
+ */
 function known(id) {
-  return ITEM_GROUPS.some(g => g[1].some(p => p[0] === id))
+  const hit = list => list.some(g => g[1].some(p => p[0] === id));
+  return hit(FOOD_GROUPS) || hit(CRAFT_GROUPS)
+      || !!BASELINE.mirrors[id] || !!(BASELINE.blocks || {})[id]
       || materialChoices().some(p => p[0] === id);
 }
 
@@ -2393,7 +2687,7 @@ function drawItems() {
       });
       sel.appendChild(g);
     }
-    ITEM_GROUPS.forEach(pair => {
+    itemGroups().forEach(pair => {
       const g = document.createElement("optgroup");
       g.label = pair[0];
       pair[1].forEach(it => {
@@ -2451,6 +2745,19 @@ function drawItems() {
   }
   const add = document.getElementById("addBtn");
   if (add) { add.disabled = items.length >= max; }
+
+  // 🔴 <b>一覧に無いものの相談先を出す</b>（人間の指示 2026-08-28）。
+  //    ⚠️ <b>「じかに書く」で入れても値段が付かない</b>ことがあるので、
+  //    <b>黙って使わせない</b>。
+  let note = document.getElementById("itemsNote");
+  if (!note) {
+    note = document.createElement("p");
+    note.id = "itemsNote";
+    note.className = "hint";
+    box.parentNode.appendChild(note);
+  }
+  note.innerHTML = "⚠️ <b>ここに無いものは、運営に相談してください。</b>"
+      + "値段の決まっていないものは、<b>使っても卸値に乗りません</b>。";
 }
 
 /**
@@ -2712,6 +3019,8 @@ const RATES = {
   "minecraft:gunpowder": 80,
   "minecraft:ender_pearl": 300,
   "minecraft:blaze_rod": 400,
+  "minecraft:trident": 3602,
+  "minecraft:heavy_core": 1850,
   "minecraft:white_wool": 55,
   "minecraft:orange_wool": 55,
   "minecraft:magenta_wool": 55,
@@ -2752,8 +3061,701 @@ const ENCH_MAX = {
 };
 
 // 適正コストの基準点（性能 → G）。⚠️ 金は外れ値なので入っていません
-const CURVE = [[1500, 201], [10927, 2401], [16248, 15401]];
-const JUDGE_FROM = 1500;
+/* BASELINE:BEGIN */
+// 🔴 ここは tools/sync-baseline.py が書き換えます。手で直さないでください。
+//    中身はサーバーがバニラから読んだ値です（config/shigotocraft/baseline.json）。
+const BASELINE = {
+  "allowance": 1.25,
+  "dpsStep": 0.05,
+  "dpsDouble": 2.0,
+  "mirrors": {
+    "minecraft:wooden_sword": {
+      "base": "sword",
+      "step": "wooden",
+      "damage": 4.0,
+      "swing": 1.6,
+      "durability": 59,
+      "cost": 5
+    },
+    "minecraft:stone_sword": {
+      "base": "sword",
+      "step": "stone",
+      "damage": 5.0,
+      "swing": 1.6,
+      "durability": 131,
+      "cost": 3
+    },
+    "minecraft:copper_sword": {
+      "base": "sword",
+      "step": "copper",
+      "damage": 5.0,
+      "swing": 1.6,
+      "durability": 190,
+      "cost": 81
+    },
+    "minecraft:iron_sword": {
+      "base": "sword",
+      "step": "iron",
+      "damage": 6.0,
+      "swing": 1.6,
+      "durability": 250,
+      "cost": 201
+    },
+    "minecraft:diamond_sword": {
+      "base": "sword",
+      "step": "diamond",
+      "damage": 7.0,
+      "swing": 1.6,
+      "durability": 1561,
+      "cost": 2401
+    },
+    "minecraft:netherite_sword": {
+      "base": "sword",
+      "step": "netherite",
+      "damage": 8.0,
+      "swing": 1.6,
+      "durability": 2031,
+      "cost": 15401
+    },
+    "minecraft:wooden_pickaxe": {
+      "base": "pickaxe",
+      "step": "wooden",
+      "damage": 2.0,
+      "swing": 1.2,
+      "durability": 59,
+      "cost": 8
+    },
+    "minecraft:stone_pickaxe": {
+      "base": "pickaxe",
+      "step": "stone",
+      "damage": 3.0,
+      "swing": 1.2,
+      "durability": 131,
+      "cost": 5
+    },
+    "minecraft:copper_pickaxe": {
+      "base": "pickaxe",
+      "step": "copper",
+      "damage": 3.0,
+      "swing": 1.2,
+      "durability": 190,
+      "cost": 122
+    },
+    "minecraft:iron_pickaxe": {
+      "base": "pickaxe",
+      "step": "iron",
+      "damage": 4.0,
+      "swing": 1.2,
+      "durability": 250,
+      "cost": 302
+    },
+    "minecraft:diamond_pickaxe": {
+      "base": "pickaxe",
+      "step": "diamond",
+      "damage": 5.0,
+      "swing": 1.2,
+      "durability": 1561,
+      "cost": 3602
+    },
+    "minecraft:netherite_pickaxe": {
+      "base": "pickaxe",
+      "step": "netherite",
+      "damage": 6.0,
+      "swing": 1.2,
+      "durability": 2031,
+      "cost": 16602
+    },
+    "minecraft:wooden_spear": {
+      "base": "spear",
+      "step": "wooden",
+      "damage": 1.0,
+      "swing": 1.54,
+      "durability": 59,
+      "cost": 4
+    },
+    "minecraft:stone_spear": {
+      "base": "spear",
+      "step": "stone",
+      "damage": 2.0,
+      "swing": 1.33,
+      "durability": 131,
+      "cost": 3
+    },
+    "minecraft:copper_spear": {
+      "base": "spear",
+      "step": "copper",
+      "damage": 2.0,
+      "swing": 1.18,
+      "durability": 190,
+      "cost": 42
+    },
+    "minecraft:iron_spear": {
+      "base": "spear",
+      "step": "iron",
+      "damage": 3.0,
+      "swing": 1.05,
+      "durability": 250,
+      "cost": 102
+    },
+    "minecraft:diamond_spear": {
+      "base": "spear",
+      "step": "diamond",
+      "damage": 4.0,
+      "swing": 0.95,
+      "durability": 1561,
+      "cost": 1202
+    },
+    "minecraft:netherite_spear": {
+      "base": "spear",
+      "step": "netherite",
+      "damage": 5.0,
+      "swing": 0.87,
+      "durability": 2031,
+      "cost": 14202
+    },
+    "minecraft:shield": {
+      "base": "shield",
+      "step": "",
+      "damage": 1.0,
+      "swing": 4.0,
+      "durability": 336,
+      "cost": 112
+    },
+    "minecraft:bow": {
+      "base": "bow",
+      "step": "",
+      "damage": 1.0,
+      "swing": 4.0,
+      "durability": 384,
+      "cost": 153
+    },
+    "minecraft:crossbow": {
+      "base": "crossbow",
+      "step": "",
+      "damage": 1.0,
+      "swing": 4.0,
+      "durability": 465,
+      "cost": 203
+    },
+    "minecraft:trident": {
+      "base": "trident",
+      "step": "",
+      "damage": 9.0,
+      "swing": 1.1,
+      "durability": 250,
+      "cost": 3602
+    },
+    "minecraft:mace": {
+      "base": "mace",
+      "step": "",
+      "damage": 6.0,
+      "swing": 0.6,
+      "durability": 500,
+      "cost": 1850
+    },
+    "minecraft:shears": {
+      "base": "shears",
+      "step": "",
+      "damage": 1.0,
+      "swing": 4.0,
+      "durability": 238,
+      "cost": 200
+    },
+    "minecraft:wooden_axe": {
+      "base": "axe",
+      "step": "wooden",
+      "damage": 7.0,
+      "swing": 0.8,
+      "durability": 59,
+      "cost": 8
+    },
+    "minecraft:stone_axe": {
+      "base": "axe",
+      "step": "stone",
+      "damage": 9.0,
+      "swing": 0.8,
+      "durability": 131,
+      "cost": 5
+    },
+    "minecraft:copper_axe": {
+      "base": "axe",
+      "step": "copper",
+      "damage": 9.0,
+      "swing": 0.8,
+      "durability": 190,
+      "cost": 122
+    },
+    "minecraft:iron_axe": {
+      "base": "axe",
+      "step": "iron",
+      "damage": 9.0,
+      "swing": 0.9,
+      "durability": 250,
+      "cost": 302
+    },
+    "minecraft:diamond_axe": {
+      "base": "axe",
+      "step": "diamond",
+      "damage": 9.0,
+      "swing": 1.0,
+      "durability": 1561,
+      "cost": 3602
+    },
+    "minecraft:netherite_axe": {
+      "base": "axe",
+      "step": "netherite",
+      "damage": 10.0,
+      "swing": 1.0,
+      "durability": 2031,
+      "cost": 16602
+    },
+    "minecraft:wooden_hoe": {
+      "base": "hoe",
+      "step": "wooden",
+      "damage": 1.0,
+      "swing": 1.0,
+      "durability": 59,
+      "cost": 6
+    },
+    "minecraft:stone_hoe": {
+      "base": "hoe",
+      "step": "stone",
+      "damage": 1.0,
+      "swing": 2.0,
+      "durability": 131,
+      "cost": 4
+    },
+    "minecraft:copper_hoe": {
+      "base": "hoe",
+      "step": "copper",
+      "damage": 1.0,
+      "swing": 2.0,
+      "durability": 190,
+      "cost": 82
+    },
+    "minecraft:iron_hoe": {
+      "base": "hoe",
+      "step": "iron",
+      "damage": 1.0,
+      "swing": 3.0,
+      "durability": 250,
+      "cost": 202
+    },
+    "minecraft:diamond_hoe": {
+      "base": "hoe",
+      "step": "diamond",
+      "damage": 1.0,
+      "swing": 4.0,
+      "durability": 1561,
+      "cost": 2402
+    },
+    "minecraft:netherite_hoe": {
+      "base": "hoe",
+      "step": "netherite",
+      "damage": 1.0,
+      "swing": 4.0,
+      "durability": 2031,
+      "cost": 15402
+    },
+    "minecraft:wooden_shovel": {
+      "base": "shovel",
+      "step": "wooden",
+      "damage": 2.5,
+      "swing": 1.0,
+      "durability": 59,
+      "cost": 4
+    },
+    "minecraft:stone_shovel": {
+      "base": "shovel",
+      "step": "stone",
+      "damage": 3.5,
+      "swing": 1.0,
+      "durability": 131,
+      "cost": 3
+    },
+    "minecraft:copper_shovel": {
+      "base": "shovel",
+      "step": "copper",
+      "damage": 3.5,
+      "swing": 1.0,
+      "durability": 190,
+      "cost": 42
+    },
+    "minecraft:iron_shovel": {
+      "base": "shovel",
+      "step": "iron",
+      "damage": 4.5,
+      "swing": 1.0,
+      "durability": 250,
+      "cost": 102
+    },
+    "minecraft:diamond_shovel": {
+      "base": "shovel",
+      "step": "diamond",
+      "damage": 5.5,
+      "swing": 1.0,
+      "durability": 1561,
+      "cost": 1202
+    },
+    "minecraft:netherite_shovel": {
+      "base": "shovel",
+      "step": "netherite",
+      "damage": 6.5,
+      "swing": 1.0,
+      "durability": 2031,
+      "cost": 14202
+    },
+    "minecraft:fishing_rod": {
+      "base": "fishing_rod",
+      "step": "",
+      "damage": 1.0,
+      "swing": 4.0,
+      "durability": 64,
+      "cost": 103
+    },
+    "minecraft:leather_helmet": {
+      "wear": "head",
+      "armor": 1.0,
+      "tough": 0.0,
+      "durability": 55,
+      "cost": 750
+    },
+    "minecraft:chainmail_helmet": {
+      "wear": "head",
+      "armor": 2.0,
+      "tough": 0.0,
+      "durability": 165,
+      "cost": 185
+    },
+    "minecraft:copper_helmet": {
+      "wear": "head",
+      "armor": 2.0,
+      "tough": 0.0,
+      "durability": 121,
+      "cost": 200
+    },
+    "minecraft:iron_helmet": {
+      "wear": "head",
+      "armor": 2.0,
+      "tough": 0.0,
+      "durability": 165,
+      "cost": 500
+    },
+    "minecraft:diamond_helmet": {
+      "wear": "head",
+      "armor": 3.0,
+      "tough": 2.0,
+      "durability": 363,
+      "cost": 6000
+    },
+    "minecraft:netherite_helmet": {
+      "wear": "head",
+      "armor": 3.0,
+      "tough": 3.0,
+      "durability": 407,
+      "cost": 19000
+    },
+    "minecraft:leather_chestplate": {
+      "wear": "chest",
+      "armor": 3.0,
+      "tough": 0.0,
+      "durability": 80,
+      "cost": 1200
+    },
+    "minecraft:chainmail_chestplate": {
+      "wear": "chest",
+      "armor": 5.0,
+      "tough": 0.0,
+      "durability": 240,
+      "cost": 185
+    },
+    "minecraft:copper_chestplate": {
+      "wear": "chest",
+      "armor": 4.0,
+      "tough": 0.0,
+      "durability": 176,
+      "cost": 320
+    },
+    "minecraft:iron_chestplate": {
+      "wear": "chest",
+      "armor": 6.0,
+      "tough": 0.0,
+      "durability": 240,
+      "cost": 800
+    },
+    "minecraft:diamond_chestplate": {
+      "wear": "chest",
+      "armor": 8.0,
+      "tough": 2.0,
+      "durability": 528,
+      "cost": 9600
+    },
+    "minecraft:netherite_chestplate": {
+      "wear": "chest",
+      "armor": 8.0,
+      "tough": 3.0,
+      "durability": 592,
+      "cost": 22600
+    },
+    "minecraft:leather_leggings": {
+      "wear": "legs",
+      "armor": 2.0,
+      "tough": 0.0,
+      "durability": 75,
+      "cost": 1050
+    },
+    "minecraft:chainmail_leggings": {
+      "wear": "legs",
+      "armor": 4.0,
+      "tough": 0.0,
+      "durability": 225,
+      "cost": 185
+    },
+    "minecraft:copper_leggings": {
+      "wear": "legs",
+      "armor": 3.0,
+      "tough": 0.0,
+      "durability": 165,
+      "cost": 280
+    },
+    "minecraft:iron_leggings": {
+      "wear": "legs",
+      "armor": 5.0,
+      "tough": 0.0,
+      "durability": 225,
+      "cost": 700
+    },
+    "minecraft:diamond_leggings": {
+      "wear": "legs",
+      "armor": 6.0,
+      "tough": 2.0,
+      "durability": 495,
+      "cost": 8400
+    },
+    "minecraft:netherite_leggings": {
+      "wear": "legs",
+      "armor": 6.0,
+      "tough": 3.0,
+      "durability": 555,
+      "cost": 185
+    },
+    "minecraft:leather_boots": {
+      "wear": "feet",
+      "armor": 1.0,
+      "tough": 0.0,
+      "durability": 65,
+      "cost": 600
+    },
+    "minecraft:chainmail_boots": {
+      "wear": "feet",
+      "armor": 1.0,
+      "tough": 0.0,
+      "durability": 195,
+      "cost": 185
+    },
+    "minecraft:copper_boots": {
+      "wear": "feet",
+      "armor": 1.0,
+      "tough": 0.0,
+      "durability": 143,
+      "cost": 160
+    },
+    "minecraft:iron_boots": {
+      "wear": "feet",
+      "armor": 2.0,
+      "tough": 0.0,
+      "durability": 195,
+      "cost": 400
+    },
+    "minecraft:diamond_boots": {
+      "wear": "feet",
+      "armor": 3.0,
+      "tough": 2.0,
+      "durability": 429,
+      "cost": 4800
+    },
+    "minecraft:netherite_boots": {
+      "wear": "feet",
+      "armor": 3.0,
+      "tough": 3.0,
+      "durability": 481,
+      "cost": 17800
+    }
+  },
+  "blocks": {
+    "minecraft:diamond_block": 10800,
+    "minecraft:emerald_block": 9000,
+    "minecraft:gold_block": 2250,
+    "minecraft:iron_block": 900,
+    "minecraft:copper_block": 360,
+    "minecraft:netherite_block": 117000,
+    "minecraft:coal_block": 270,
+    "minecraft:redstone_block": 225,
+    "minecraft:lapis_block": 270,
+    "minecraft:quartz_block": 140,
+    "minecraft:hay_block": 450,
+    "minecraft:bone_block": 0,
+    "minecraft:slime_block": 0,
+    "minecraft:honey_block": 0,
+    "minecraft:ice": 0,
+    "minecraft:packed_ice": 0,
+    "minecraft:blue_ice": 0,
+    "minecraft:obsidian": 0,
+    "minecraft:glass": 1,
+    "minecraft:glowstone": 0,
+    "minecraft:sea_lantern": 0,
+    "minecraft:prismarine": 0,
+    "minecraft:amethyst_block": 0,
+    "minecraft:bricks": 0,
+    "minecraft:terracotta": 0,
+    "minecraft:clay": 0,
+    "minecraft:chest": 16,
+    "minecraft:barrel": 12,
+    "minecraft:crafting_table": 8,
+    "minecraft:furnace": 8,
+    "minecraft:smoker": 40,
+    "minecraft:blast_furnace": 500,
+    "minecraft:bookshelf": 402,
+    "minecraft:ladder": 2,
+    "minecraft:torch": 2,
+    "minecraft:lantern": 88,
+    "minecraft:iron_bars": 38,
+    "minecraft:glass_pane": 1,
+    "minecraft:cauldron": 700,
+    "minecraft:anvil": 400,
+    "minecraft:campfire": 57,
+    "minecraft:jukebox": 1216,
+    "minecraft:note_block": 41,
+    "minecraft:bell": 0,
+    "minecraft:flower_pot": 0,
+    "minecraft:item_frame": 158,
+    "minecraft:oak_fence": 3,
+    "minecraft:oak_fence_gate": 8,
+    "minecraft:oak_door": 4,
+    "minecraft:oak_trapdoor": 6,
+    "minecraft:oak_sign": 4,
+    "minecraft:oak_stairs": 3,
+    "minecraft:oak_slab": 1,
+    "minecraft:stone_stairs": 3,
+    "minecraft:stone_slab": 1,
+    "minecraft:brewing_stand": 403,
+    "minecraft:smithing_table": 208,
+    "minecraft:loom": 104,
+    "minecraft:cartography_table": 88,
+    "minecraft:fletching_table": 8,
+    "minecraft:grindstone": 6,
+    "minecraft:stonecutter": 106,
+    "minecraft:composter": 7,
+    "minecraft:lectern": 402
+  }
+};
+/* BASELINE:END */
+
+/** 素材の段の日本語。⚠️ 「鉄の剣」と出すためだけに使います。 */
+const STEP_JA = { wooden: "木", stone: "石", copper: "銅", iron: "鉄",
+                  diamond: "ダイヤ", netherite: "ネザライト",
+                  leather: "革", chainmail: "チェーン" };
+
+/** その物差しの呼び名。⚠️ 段の無いものは武器種の名前だけ。 */
+const WEAR_JA = { head: "かぶと", chest: "むねあて", legs: "ズボン", feet: "くつ" };
+
+function mirrorLabel(id, m) {
+  if (m.wear) {
+    // ⚠️ 防具は名前から段を読み取る（minecraft:iron_chestplate → iron）
+    const step = id.replace("minecraft:", "").replace(/_(helmet|chestplate|leggings|boots)$/, "");
+    return (STEP_JA[step] || step) + "の" + (WEAR_JA[m.wear] || m.wear);
+  }
+  const kind = baseName(m.base);
+  return m.step ? ((STEP_JA[m.step] || m.step) + "の" + kind) : kind;
+}
+
+/** 武器種の日本語。⚠️ 選び口から拾います。 */
+function baseName(id) {
+  const sel = document.getElementById("base");
+  if (sel) {
+    for (const o of sel.options) {
+      // ⚠️ 「★」は型つきの枠を取る印。材料の名前には要らない
+      if (o.value === id) { return o.textContent.replace(/\s*★\s*/g, ""); }
+    }
+  }
+  return id;
+}
+
+/**
+ * いま材料に入っている「もとになる武器」。
+ *
+ * 🔴 <b>材料に入れたバニラの武器が物差しです</b>（人間の指示 2026-08-27）。
+ * ⚠️ <b>鉄の剣を材料にすれば、そこから 25% まで強くできます。</b>
+ * ダイヤ級が欲しければ<b>ダイヤの剣を材料に入れます</b>。
+ */
+/**
+ * 防具の「着るところ」。
+ *
+ * 🔴 <b>防具は armorWear、洋服は wear</b>（2026-08-28 に取り違えた）。
+ * ⚠️ <b>名前が似ているので、ここ1か所にまとめる。</b>
+ */
+function armorWear() {
+  return val("armorWear") || "chest";
+}
+
+function mirrorNow() {
+  if (mode !== "weapon" && mode !== "armor") { return null; }
+  // 🔴 防具も同じ作り（人間の指示 2026-08-28）
+  // 🔴 <b>防具の「着るところ」は armorWear</b>（2026-08-28 に間違えた）。
+  //    ⚠️ <b>wear は洋服のほう</b>――名前が似ていて取り違えた。
+  const want = (mode === "armor") ? armorWear() : (val("base") || "sword");
+  const key = (mode === "armor") ? "wear" : "base";
+  let found = null;
+  items.filter(i => i && i.item).forEach(i => {
+    const m = BASELINE.mirrors[i.item];
+    if (m && m[key] === want && !found) {
+      found = Object.assign({}, m, { id: i.item });
+    }
+  });
+  return found;
+}
+
+/**
+ * 物差しからの上限。⚠️ 物差しが無ければ null。
+ *
+ * 🔴 <b>どれも材料にした武器の 1.25 倍まで</b>（人間の指示 2026-08-27）。
+ * ⚠️ <b>段どうしを見比べる縛りはやめました</b>――
+ * 材料に入れた武器そのものが基準なので、要らなくなりました。
+ */
+function capsNow() {
+  const m = mirrorNow();
+  if (!m) { return null; }
+  const k = BASELINE.allowance || 1.25;
+  if (mode === "armor") {
+    // ⚠️ 防具に DPS はありません。どの数もそれぞれ 1.25 倍まで
+    return { armorGuard: m.armor * k, tough: m.tough * k,
+             power: m.armor * m.durability * k,
+             durability: Math.round(m.durability * k), mirror: m };
+  }
+  return { power: m.damage * m.swing * m.durability * k,
+           damage: m.damage * k,
+           swing: m.swing * k,
+           dps: m.damage * m.swing * k,
+           durability: Math.round(m.durability * k), mirror: m };
+}
+
+/** その武器種で、もとにできる武器。⚠️ 弱いほうから。 */
+function mirrorsFor(base) {
+  const armorMode = (mode === "armor");
+  const key = armorMode ? "wear" : "base";
+  const out = [];
+  Object.keys(BASELINE.mirrors).forEach(id => {
+    const m = BASELINE.mirrors[id];
+    if (m[key] === base) { out.push([id, m]); }
+  });
+  const rank = m => armorMode ? (m.armor * m.durability)
+                              : (m.damage * m.swing * m.durability);
+  out.sort((a, b) => rank(a[1]) - rank(b[1]));
+  return out;
+}
+
+const CURVE = [[2400, 201], [17483, 2401], [25997, 15401]];
+const JUDGE_FROM = 2400;
 const JUDGE_RATIO = 0.80;
 
 // 🔴 防具は着るところごとに別の曲線です（人間の判断 2026-08-24）。
@@ -2812,10 +3814,15 @@ function properG(power, curve) {
  */
 function priceNow() {
   const lines = items.filter(i => i && i.item).map(i => {
-    const unit = RATES[i.item] || 0;
+    // 🔴 <b>もとになる武器は値段の表に無い</b>ので、レシピ代を使います
+    const mirror = BASELINE.mirrors[i.item];
+    const block = (BASELINE.blocks || {})[i.item];
+    const unit = RATES[i.item] || (mirror ? mirror.cost : 0) || block || 0;
     const count = i.count || 1;
     return { item: i.item, count: count, unit: unit,
-             total: unit * count, unknown: !(i.item in RATES) };
+             total: unit * count,
+             unknown: !(i.item in RATES) && !(mirror && mirror.cost > 0)
+                      && !(block > 0) };
   });
   const material = lines.reduce((a, l) => a + l.total, 0);
   const chosen = (typeof picked !== "undefined" && picked) ? picked : [];
@@ -2823,21 +3830,86 @@ function priceNow() {
 
   const armor = (mode === "armor");
   const weapon = (mode === "weapon" || armor);
-  const dur = Number(val("durability")) || 0;
-  // 🔴 武器は攻撃力×耐久、防具は防御力×耐久
-  const power = armor ? (Number(val("armor")) || 0) * dur
-              : weapon ? (Number(val("damage")) || 0) * dur : 0;
-  const wear = armor ? (["head","legs","feet"].indexOf(val("wear")) >= 0
-                        ? val("wear") : "chest") : null;
+  const caps = capsNow();
+  // 🔴 防具は防御力と強度で見ます（人間の指示 2026-08-28）
+  const guardWant = Math.max(0, Number(val("armor")) || 0);
+  const toughWant = Math.max(0, Number(val("toughness")) || 0);
+  // 🔴 上限は物差しから。⚠️ 超えた値はサーバーが黙って丸めるので、ここで見せる
+  const dur = Math.max(0, Number(val("durability")) || 0);
+  const hit = Math.max(1, Number(val("damage")) || 0);
+  const spd = Math.max(0.1, Number(val("swing")) || 4);
+  const over = [];
+  // 🔴 <b>もとになる武器・防具が材料に入っていないと作れません</b>
+  //    （人間の指示 2026-08-27／28）
+  const noMirror = (weapon && !caps
+                    && mirrorsFor(armor ? armorWear()
+                                        : (val("base") || "sword")).length > 0);
+  if (caps && armor) {
+    if (dur > caps.durability) { over.push("耐久"); }
+    if (guardWant > caps.armorGuard + 1e-9) { over.push("防御力"); }
+    if (toughWant > caps.tough + 1e-9) { over.push("強度"); }
+    const durUse = Math.min(dur, caps.durability);
+    if (durUse > 0 && guardWant * durUse > caps.power + 1e-9) { over.push("強さ全体"); }
+  } else if (caps) {
+    if (dur > caps.durability) { over.push("耐久"); }
+    if (hit > caps.damage + 1e-9) { over.push("攻撃力"); }
+    if (spd > caps.swing + 1e-9) { over.push("攻撃速度"); }
+    if (hit * spd > caps.dps + 1e-9) { over.push("DPS"); }
+    const durUse = Math.min(dur, caps.durability);
+    if (durUse > 0 && hit * spd * durUse > caps.power + 1e-9) { over.push("強さ全体"); }
+  }
+  // 🔴 <b>丸めたあとの値で数えます。</b>
+  //    ⚠️ サーバーは上限まで下げて登録するので、丸める前で数えると
+  //    <b>エディタとゲームで割合が食い違います</b>。
+  // ⚠️ <b>釣り合いは攻撃力で取ります</b>（速さは手触りを決めるので動かしません）。
+  const spdC = (caps && !armor) ? Math.min(spd, caps.swing) : spd;
+  const durC = caps ? Math.min(dur, caps.durability) : dur;
+  let hitC = hit;
+  let guardC = guardWant;
+  if (caps && armor) {
+    guardC = Math.min(guardC, caps.armorGuard);
+    if (durC > 0 && guardC * durC > caps.power) { guardC = caps.power / durC; }
+  } else if (caps) {
+    hitC = Math.min(hitC, caps.damage);
+    if (spdC > 0 && hitC * spdC > caps.dps) { hitC = caps.dps / spdC; }
+    if (durC > 0 && spdC > 0 && hitC * spdC * durC > caps.power) {
+      hitC = caps.power / (spdC * durC);
+    }
+    hitC = Math.max(1, hitC);
+  }
+  // 🔴 武器は攻撃力×速さ×耐久、防具は防御力×耐久
+  const power = armor ? guardC * durC
+              : weapon ? hitC * spdC * durC : 0;
+  // 🔴 防具の「着るところ」は armorWear（wear は洋服のほう）
+  const wear = armor ? armorWear() : null;
   const curve = armor ? ARMOR_CURVE[wear] : CURVE;
   const floor = armor ? ARMOR_FROM[wear] : JUDGE_FROM;
-  const judged = weapon && floor > 0 && power >= floor;
-  const proper = judged ? properG(power, curve) : 0;
+  // 🔴 物差しが取れるものは、弱くても見ます（バニラと直に比べられるため）
+  const judged = weapon && (caps ? true : (floor > 0 && power >= floor));
+  let proper = 0;
+  if (judged && caps) {
+    const m = caps.mirror;
+    // 🔴 <b>DPS が 5% 上がるごとに素材が倍</b>（人間の判断 2026-08-27）。
+    //    ⚠️ <b>バニラと同じ強さなら、バニラのレシピ代そのまま。</b>
+    //    上乗せしていたら、ふつうのダイヤの剣が作れませんでした。
+    // ⚠️ 防具は防御力で見ます（DPS が無いため）
+    const up = armor ? Math.max(0, guardC / m.armor - 1)
+                     : Math.max(0, (hitC * spdC) / (m.damage * m.swing) - 1);
+    const steps = up / (BASELINE.dpsStep || 0.05);
+    // ⚠️ 耐久はそのまま比で掛けます（すぐ壊れる代わりに強いものを作れるように）
+    const durRatio = (m.durability > 0)
+        ? (durC > 0 ? Math.max(0.1, durC / m.durability) : (BASELINE.allowance || 1.25))
+        : 1;
+    proper = Math.round(m.cost * Math.pow(BASELINE.dpsDouble || 2, steps) * durRatio);
+  } else if (judged) {
+    proper = properG(power, curve);
+  }
   const ratio = (judged && proper > 0) ? material / proper : 1;
   return { lines: lines, material: material, ench: ench, total: material + ench,
            chosen: chosen, weapon: weapon, power: power, judged: judged,
-           proper: proper, ratio: ratio, floor: floor,
-           ng: judged && ratio < JUDGE_RATIO };
+           proper: proper, ratio: ratio, floor: floor, caps: caps, over: over,
+           noMirror: noMirror,
+           ng: (judged && ratio < JUDGE_RATIO) || over.length > 0 || noMirror };
 }
 
 /** 値段の内訳を描く。⚠️ 基準を下回るときは保存を止めます。 */
@@ -2861,10 +3933,50 @@ function drawPrice() {
     });
     rows.push("<div class='line'><b>エンチャントぶん</b><b>"
       + showG(p.ench) + "</b></div>");
+    // 🔴 <b>エンチャントはタダで付きません</b>（人間の指示 2026-08-27）。
+    //    ⚠️ <b>1つにつき、その本を1冊</b>――バニラで本を買うのと同じ手間にします。
+    rows.push("<p class='hint'>🔴 <b>作るときに、エンチャントの本が "
+      + p.chosen.length + " 冊要ります。</b><br>"
+      + "⚠️ <b>そのエンチャントが入っていれば、レベルは問いません。</b>"
+      + "うちで付くのはどれもレベル1です。</p>");
   }
   rows.push("<div class='line'><b>卸値（初期値）</b><b>" + showG(p.total) + "</b></div>");
 
   if (p.weapon) {
+    // 🔴 何と比べているかを先に出す。⚠️ 上限の理由が見えないと直しようがない
+    if (p.noMirror) {
+      const can = mirrorsFor(mode === "armor" ? armorWear()
+                                              : (val("base") || "sword"))
+        .map(pair => mirrorLabel(pair[0], pair[1])).join("・");
+      rows.push("<p class='hint' style='color:#c00'>🔴 <b>もとになる"
+        + (mode === "armor" ? "防具" : "武器") + "を材料に"
+        + "入れてください。</b><br>選べるのは <b>" + can + "</b> です。<br>"
+        + "⚠️ <b>入れたものから 25% までしか強くできません。</b>"
+        + "強いものが欲しいときは、<b>上のものをもとにしてください</b>。</p>");
+    }
+    if (p.caps && mode === "armor") {
+      const m = p.caps.mirror;
+      rows.push("<div class='line'><span class='muted'>もとにした防具</span>"
+        + "<span class='muted'>" + mirrorLabel(m.id, m) + "　防御 "
+        + m.armor.toFixed(1) + "／強度 " + m.tough.toFixed(1)
+        + "／耐久 " + m.durability + "</span></div>");
+      rows.push("<div class='line'><span>上限</span><b>防御 "
+        + p.caps.armorGuard.toFixed(2) + "／強度 " + p.caps.tough.toFixed(2)
+        + "／強さ全体 " + Math.round(p.caps.power)
+        + "／耐久 " + p.caps.durability + "</b></div>");
+    } else if (p.caps) {
+      const m = p.caps.mirror;
+      rows.push("<div class='line'><span class='muted'>もとにした武器</span>"
+        + "<span class='muted'>" + mirrorLabel(m.id, m) + "　攻撃力 "
+        + m.damage.toFixed(1) + "／速さ " + m.swing.toFixed(2)
+        + "／耐久 " + m.durability
+        + "（DPS " + (m.damage * m.swing).toFixed(2) + "）</span></div>");
+      rows.push("<div class='line'><span>上限</span><b>攻撃力 "
+        + p.caps.damage.toFixed(2) + "／速さ " + p.caps.swing.toFixed(2)
+        + "／DPS " + p.caps.dps.toFixed(2) + "</b></div>");
+      rows.push("<div class='line'><span class='muted'>　</span><b>強さ全体 "
+        + Math.round(p.caps.power) + "／耐久 " + p.caps.durability + "</b></div>");
+    }
     if (!p.judged) {
       rows.push("<div class='muted'>性能 " + Math.round(p.power)
         + "　判定なし（" + Math.round(p.floor) + " 未満）</div>");
@@ -2873,11 +3985,17 @@ function drawPrice() {
       rows.push("<div class='line'><span>性能 " + Math.round(p.power)
         + "　適正 " + showG(p.proper) + "</span><b style='color:"
         + (p.ng ? "#c00" : "#080") + "'>" + pct + "％</b></div>");
-      if (p.ng) {
+      if (p.over.length) {
+        rows.push("<p class='hint' style='color:#c00'>🔴 <b>"
+          + p.over.join("・") + " が上限を超えています。</b><br>"
+          + "⚠️ <b>このままでは、攻撃力を下げて登録されます。</b><br>"
+          + "もっと強くしたいときは、<b>もとにするものを上のものに変えて</b>ください。</p>");
+      }
+      if (p.ratio < JUDGE_RATIO) {
         rows.push("<p class='hint' style='color:#c00'>🔴 <b>素材が安すぎます。</b>"
-          + "この強さなら <b>" + showG(p.proper * JUDGE_RATIO)
+          + "この強さなら <b>" + showG(Math.round(p.proper * JUDGE_RATIO))
           + "</b> 以上の材料が要ります。<br>"
-          + "⚠️ 材料を増やすか、攻撃力か耐久を下げてください。"
+          + "⚠️ 材料を増やすか、攻撃力・速さ・耐久を下げてください。"
           + "<b>エンチャントは判定に入りません。</b></p>");
       }
     }
@@ -2888,7 +4006,10 @@ function drawPrice() {
   const btn = document.getElementById("saveBtn");
   if (btn) {
     btn.disabled = p.ng && !admin();
-    btn.title = btn.disabled ? "素材が安すぎるので保存できません" : "";
+    btn.title = btn.disabled
+        ? (p.over.length ? "上限を超えているので保存できません"
+                         : "素材が安すぎるので保存できません")
+        : "";
   }
 }
 
@@ -2908,14 +4029,15 @@ function goods() {
       .filter(i => i && i.item)
       .map(i => ({ item: i.item, count: i.count || 1 })),
   };
-  // 🔴 卸値は材料から自動で出す（裁定 2026-08-24）。売値は作る人が決める
+  // 🔴 卸値は材料から自動で出す（裁定 2026-08-24）。
+  // 🔴 <b>売値はここでは決めない</b>（人間の判断 2026-08-27）――
+  //    ⚠️ <b>売る場所（自動販売機の台・対面の画面）が持つ</b>。
+  //    ここにも置くと、書いた額と実際に売れた額が食い違う。
   try {
     const p = priceNow();
     g.wholesale = Math.round(p.total);
-    g.price = Number(val("price")) || 0;
   } catch (e) {
     g.wholesale = 0;
-    g.price = 0;
   }
   if (mode === "hata") {
     // 🔴 旗は枠を使わない。バニラの旗に模様を1枚載せるだけ
@@ -3505,6 +4627,9 @@ function armorWearChanged() {
   drawSideRow();
   drawPaint();
   drawEnchants();
+  // 🔴 <b>もとになる防具の一覧も変わる</b>（2026-08-28）。
+  //    ⚠️ 描き直さないと、胴を選んでいるのにズボンが並んだままになる
+  drawItems();
   render();
 }
 
@@ -3600,14 +4725,20 @@ function drawEnchants() {
           (ENCHANTS.find(x => x[0] === id) || [0, id])[1]).join("と"));
     }
   });
-  if (clashes.length) {
-    note.className = "hint bad";
-    note.innerHTML = "🔴 <b>" + clashes.join("／")
-        + " は同時に付けられません。</b>片方しか効きません。";
-  } else if (picked.length) {
-    note.innerHTML = "⚠️ <b>どれもレベル1で付きます。</b>"
-        + "強くするときは<b>金床でエンチャント本を足してください</b>。<br>"
-        + "🔴 <b>エンチャントが付いているものはエンチャント台に入りません</b>（バニラの決まり）。";
+  if (picked.length) {
+    let text = "🔴 <b>すけクラのエンチャントとして付きます。</b>"
+        + "名前は<b style='color:#3cf'>水色の「禁断の◯◯」</b>になり、"
+        + "ふつうのエンチャントと見分けがつきます"
+        + "（<b>レベルは付きません</b>）。<br>"
+        + "✅ <b>あとから同じものを重ねられます</b>――"
+        + "ダメージ増加が付いた武器に、<b>金床でダメージ増加Vの本</b>を足せます"
+        + "（<b>別のエンチャント扱いなので、両方効きます</b>）。<br>";
+    if (clashes.length) {
+      text += "✅ <b>" + clashes.join("／")
+           + " はバニラでは同時に付けられませんが、ここでは共存します。</b><br>";
+    }
+    text += "⚠️ <b>付いているものはエンチャント台に入りません</b>（バニラの決まり）。";
+    note.innerHTML = text;
   } else if (mode === "weapon") {
     note.innerHTML = "⚠️ <b>付けなくても構いません。</b>"
         + "ここに出ているのは<b>「" + baseOf(baseId())[1]
