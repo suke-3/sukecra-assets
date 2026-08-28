@@ -844,6 +844,42 @@ function toggleGuide() {
  * ⚠️ <b>形と色を分けない。</b> 置くときに色が付き、あとから色だけ塗り直せる。
  * 「形を全部決めてから色」にすると、途中で形を直したくなったときに戻れない。
  */
+/**
+ * ベッドにするか（家具だけ）。
+ *
+ * 🔴 <b>ベッドは2マスある</b>（人間の判断 2026-08-29）。
+ * ⚠️ <b>頭側と足側で別の形を描く</b>――枕のある側と足元は形が違う。
+ *
+ * <p>⚠️ <b>色は両側で1枚の絵を分け合う。</b>
+ * <b>片側だけで数えると、もう片側の色が絵から漏れる。</b>
+ */
+let bedOn = false;
+let bedPart = "foot";
+
+/** いま描いていないほうの形。⚠️ 切り替えるときに入れ替える。 */
+let bedOther = null;
+
+function blankVoxels() {
+  return Array.from({length:16},
+    () => Array.from({length:16}, () => Array(16).fill(null)));
+}
+
+/** 両側ぶんの形。⚠️ 色を数えるときと書き出すときに使う。 */
+function bedBoth() {
+  return bedOn ? [voxels, bedOther || blankVoxels()] : [voxels];
+}
+
+/** 頭側と足側を入れ替える。⚠️ いま描いていたぶんは控えへ移す。 */
+function setBedPart(part) {
+  if (!bedOn || part === bedPart) { return; }
+  const keep = bedOther || blankVoxels();
+  bedOther = voxels;
+  voxels = keep;
+  bedPart = part;
+  layer = 0;
+  drawDepthRow(); drawPaint(); render();
+}
+
 let voxels = Array.from({length:16},
     () => Array.from({length:16}, () => Array(16).fill(null)));
 
@@ -1294,6 +1330,34 @@ function drawDepthRow() {
   row.style.display = (mode === "furniture") ? "" : "none";
   if (mode !== "furniture") { return; }
   row.innerHTML = "";
+
+  // 🔴 ベッドにするか（2026-08-29）。⚠️ ベッドは2マスあるので、形が2つ要る
+  const bedWrap = document.createElement("label");
+  bedWrap.style.marginRight = "12px";
+  const bedBox = document.createElement("input");
+  bedBox.type = "checkbox"; bedBox.checked = bedOn;
+  bedBox.onchange = () => {
+    bedOn = bedBox.checked;
+    if (!bedOn) { bedPart = "foot"; }
+    drawDepthRow(); drawPaint(); render();
+  };
+  bedWrap.appendChild(bedBox);
+  bedWrap.appendChild(document.createTextNode(" ベッドにする"));
+  row.appendChild(bedWrap);
+
+  if (bedOn) {
+    [["foot", "足side"], ["head", "頭side"]].forEach(([key, name]) => {
+      const b = document.createElement("button");
+      b.className = "small" + (bedPart === key ? " on" : "");
+      b.textContent = name.replace("side", "側");
+      b.onclick = () => setBedPart(key);
+      row.appendChild(b);
+    });
+    const note = document.createElement("span");
+    note.className = "muted";
+    note.textContent = "　⚠️ 色は両側で1枚の絵を分け合います";
+    row.appendChild(note);
+  }
 
   const label = document.createElement("span");
   label.className = "muted";
@@ -4070,6 +4134,8 @@ function goods() {
     if (mode === "furniture") {
       // 🔴 当たり判定の箱。⚠️ これが無いと、削れた見た目のまま立方体に当たる
       g.boxes = shapeBoxes();
+      // 🔴 ベッドにする（2026-08-29）。⚠️ 本物のベッドの枠に載る
+      if (bedOn) { g.bed = true; }
       g.sit = on("sit");
       if (g.sit) { g.sitHeight = Number(val("sitHeight")) || 0.5; }
       // 🔴 中身を入れられる家具は専用の枠を使う（2026-08-24）
@@ -4199,14 +4265,18 @@ function paletteGrid() {
 /** 使っている色を並べる。⚠️ 順番を変えないこと。絵と番号がずれる。 */
 function palette() {
   const seen = [];
-  for (let z = 0; z < N; z++) {
-    for (let y = 0; y < N; y++) {
-      for (let x = 0; x < N; x++) {
-        const c = voxels[z][y][x];
-        if (c && !seen.includes(c)) { seen.push(c); }
+  // 🔴 ベッドは両側ぶん数える（2026-08-29）。
+  //    ⚠️ 片側だけで数えると、もう片側の色が絵から漏れる
+  bedBoth().forEach(vox => {
+    for (let z = 0; z < N; z++) {
+      for (let y = 0; y < N; y++) {
+        for (let x = 0; x < N; x++) {
+          const c = vox[z][y][x];
+          if (c && !seen.includes(c)) { seen.push(c); }
+        }
       }
     }
-  }
+  });
   return seen;
 }
 
@@ -5030,6 +5100,19 @@ function saveAll() {
     }, null, 2));
     download(id + ".item.json", JSON.stringify({
       model: { type:"minecraft:model", model: "sukecra:item/" + id }
+    }, null, 2));
+  } else if (mode === "furniture" && bedOn) {
+    // 🔴 ベッドは形が2つ（2026-08-29）。
+    //    ⚠️ 足側を .model.json、頭側を .head.model.json に決め打ちする――
+    //    いま見ているほうで名前が変わると、配るときにどちらか分からない。
+    const here = bedPart;
+    setBedPart("foot");
+    download(id + ".model.json", JSON.stringify(model(), null, 2));
+    setBedPart("head");
+    download(id + ".head.model.json", JSON.stringify(model(), null, 2));
+    setBedPart(here);
+    download(id + ".item.json", JSON.stringify({
+      model: { type:"minecraft:model", model: "sukecra:block/" + id + "_head" }
     }, null, 2));
   } else if (mode !== "hata") {
     download(id + ".model.json", JSON.stringify(model(), null, 2));
