@@ -67,7 +67,7 @@
   .swatch-now { width:28px; height:28px; border:1px solid var(--line); border-radius:4px; }
   .line { display:flex; gap:6px; align-items:center; margin-bottom:6px; flex-wrap:wrap; }
   .line input[type=text] { min-width:150px; }
-  .side { display:flex; gap:4px; margin-bottom:8px; }
+  .side { display:flex; gap:4px; margin-bottom:8px; align-items:center; flex-wrap:wrap; }
   .sub { border-left:3px solid var(--line); padding-left:10px; margin:10px 0; }
   .sub.buff { border-color:var(--ok); }
   .sub.debuff { border-color:var(--bad); }
@@ -1000,7 +1000,12 @@ function paletteInit() {
  * この道具も配り直す。⚠️ <b>手で書かない</b>――`tools/publish-editor.py` が書く。
  */
 /* MATERIALS:BEGIN */
-const BUILTIN_MATERIALS = [];
+const BUILTIN_MATERIALS = [
+  {
+    "id": "test_sozai",
+    "name": "検査：中間素材"
+  }
+];
 /* MATERIALS:END */
 
 /** 手元で足したもの。⚠️ 配られてくる一覧に無いものだけ残る。 */
@@ -1333,7 +1338,10 @@ function drawDepthRow() {
 
   // 🔴 ベッドにするか（2026-08-29）。⚠️ ベッドは2マスあるので、形が2つ要る
   const bedWrap = document.createElement("label");
-  bedWrap.style.marginRight = "12px";
+  // ⚠️ 縦に伸びないようにする（人間の実機指摘 2026-08-30）。
+  //    並びが flex なので、何も言わないと高さいっぱいに伸びる
+  bedWrap.style.cssText =
+      "display:flex;align-items:center;gap:4px;margin-right:12px;white-space:nowrap;";
   const bedBox = document.createElement("input");
   bedBox.type = "checkbox"; bedBox.checked = bedOn;
   bedBox.onchange = () => {
@@ -1341,8 +1349,9 @@ function drawDepthRow() {
     if (!bedOn) { bedPart = "foot"; }
     drawDepthRow(); drawPaint(); render();
   };
+  bedBox.style.margin = "0";
   bedWrap.appendChild(bedBox);
-  bedWrap.appendChild(document.createTextNode(" ベッドにする"));
+  bedWrap.appendChild(document.createTextNode("ベッドにする"));
   row.appendChild(bedWrap);
 
   if (bedOn) {
@@ -2280,6 +2289,21 @@ function draw3D() {
   const cx = solid.width/2, cy = solid.height/2, scale = 15, DEPTH = 1;
 
   if (mode === "furniture") {
+    // 🔴 <b>ベッドは両側まとめて見せる</b>（人間の実機指摘 2026-08-30）。
+    //    ⚠️ <b>片側だけ見えても、繋がった形になっているか分からない</b>。
+    //    ⚠️ <b>2マスぶんの長さになる</b>ので、はみ出さないよう小さく描く。
+    if (bedOn) {
+      const small = scale * 0.62;
+      const other = bedOther || blankVoxels();
+      const mine = voxelPolys(cx, cy, small, voxels,
+              bedPart === "foot" ? -N/2 : N/2);
+      const yours = voxelPolys(cx, cy, small, other,
+              bedPart === "foot" ? N/2 : -N/2);
+      // ⚠️ いま描いていないほうは薄くする。どちらを触っているか分かるように
+      yours.forEach(p => { p.fill = fade(p.fill); });
+      drawPolys(mine.concat(yours), cx, cy);
+      return;
+    }
     drawPolys(voxelPolys(cx, cy, scale), cx, cy);
     return;
   }
@@ -2334,6 +2358,21 @@ function draw3D() {
 }
 
 /** ⚠️ 奥から手前へ塗る。順番を間違えると、奥の面が手前に出る。 */
+/**
+ * 色を薄くする。
+ *
+ * <p>⚠️ <b>ベッドの「いま触っていないほう」を薄く見せる</b>ためだけに使う。
+ * 🔴 <b>形は見えていてほしいが、どちらを描いているかは分かってほしい。</b>
+ */
+function fade(fill) {
+  const m = String(fill).match(/^#([0-9a-f]{6})$/i);
+  if (!m) { return fill; }
+  const n = parseInt(m[1], 16);
+  const mix = (v) => Math.round(v + (245 - v) * 0.55);
+  const r = mix((n >> 16) & 255), g = mix((n >> 8) & 255), b = mix(n & 255);
+  return "#" + [r, g, b].map(v => v.toString(16).padStart(2, "0")).join("");
+}
+
 function drawPolys(polys, cx, cy) {
   polys.sort((a,b) => b.depth - a.depth);
   for (const p of polys) {
@@ -4204,29 +4243,30 @@ function goods() {
  *
  * ⚠️ <b>色ごとに分ける。</b> 色が違えば別の箱になるので、色数を増やすほど重くなる。
  */
-function mergeVoxels() {
+function mergeVoxels(vox) {
+  vox = vox || voxels;
   // 触ったかどうかの印
   const used = Array.from({length:N}, () =>
     Array.from({length:N}, () => Array(N).fill(false)));
   const at = (z, y, x) =>
-    (z>=0 && z<N && y>=0 && y<N && x>=0 && x<N) ? voxels[z][y][x] : null;
+    (z>=0 && z<N && y>=0 && y<N && x>=0 && x<N) ? vox[z][y][x] : null;
 
   const boxes = [];
   for (let z = 0; z < N; z++) {
     for (let y = 0; y < N; y++) {
       for (let x = 0; x < N; x++) {
-        const col = voxels[z][y][x];
+        const col = vox[z][y][x];
         if (!col || used[z][y][x]) { continue; }
 
         // 横へ伸ばす
         let x2 = x;
-        while (x2 + 1 < N && voxels[z][y][x2+1] === col && !used[z][y][x2+1]) { x2++; }
+        while (x2 + 1 < N && vox[z][y][x2+1] === col && !used[z][y][x2+1]) { x2++; }
 
         // 縦へ伸ばす（横の並びが丸ごと同じときだけ）
         let y2 = y;
         outerY: while (y2 + 1 < N) {
           for (let i = x; i <= x2; i++) {
-            if (voxels[z][y2+1][i] !== col || used[z][y2+1][i]) { break outerY; }
+            if (vox[z][y2+1][i] !== col || used[z][y2+1][i]) { break outerY; }
           }
           y2++;
         }
@@ -4236,7 +4276,7 @@ function mergeVoxels() {
         outerZ: while (z2 + 1 < N) {
           for (let j = y; j <= y2; j++) {
             for (let i = x; i <= x2; i++) {
-              if (voxels[z2+1][j][i] !== col || used[z2+1][j][i]) { break outerZ; }
+              if (vox[z2+1][j][i] !== col || used[z2+1][j][i]) { break outerZ; }
             }
           }
           z2++;
@@ -4361,8 +4401,9 @@ function furnitureBoxes() {
  * ⚠️ <b>まとめた箱の、外に出ている面だけ描く。</b> マスごとに6面描くと、
  * 数千の面になって画面が重くなる。
  */
-function voxelPolys(cx, cy, scale) {
-  const { boxes, at } = mergeVoxels();
+function voxelPolys(cx, cy, scale, vox, shiftZ) {
+  const { boxes, at } = mergeVoxels(vox);
+  const dz = shiftZ || 0;
   const polys = [];
   const SIDES = [
     { n:[0,0,-1], c:[[0,0,0],[1,0,0],[1,1,0],[0,1,0]], d:[0,0,-1], light:1.00 },
@@ -4392,7 +4433,7 @@ function voxelPolys(cx, cy, scale) {
         const p = rot([
           b.x + c[0]*w - N/2,
           b.y + c[1]*h - N/2,
-          b.z + c[2]*dp - N/2
+          b.z + c[2]*dp - N/2 + dz
         ]);
         return [cx + p[0]*scale, cy + p[1]*scale, p[2]];
       });
