@@ -1516,8 +1516,16 @@ function setSide(s) {
  */
 const ADMIN_MODES = ["material", "weapon", "armor"];
 
-/** 参加者にも見せるタブ。⚠️ 職業が開いたぶんだけ増える。 */
-const OPEN_MODES = ["clothes", "hata", "medicine"];
+/**
+ * 参加者にも見せるタブ。
+ *
+ * 🔴 <b>配るときに、開いている職業から書き込まれる</b>（2026-08-30）。
+ * ⚠️ <b>ここを手で直さない。</b> 直しても次に配ったときに上書きされる。
+ * <b>職業を開けたら、エディタを配り直すこと。</b>
+ */
+/* OPENMODES:BEGIN */
+const OPEN_MODES = [];
+/* OPENMODES:END */
 
 /**
  * 参加者にも見せるタブを出す。
