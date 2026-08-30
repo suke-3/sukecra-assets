@@ -229,6 +229,15 @@
     <input type="text" id="owner" placeholder="Minecraft のアカウント名" oninput="render()">
     <span class="hint">🔴 <b>この人だけが作れます。</b>Discord の名前ではありません</span>
   </div>
+  <div class="row" id="rowEveryone" style="display:none">
+    <label>全員に配る</label>
+    <input type="checkbox" id="everyone" onchange="render()">
+    <span class="hint">
+      🔴 <b>運営が全員に配るレシピにします。</b>
+      その職業の人なら<b>誰でも作れて、作る人の枠を使いません</b>。
+      ⚠️ 職業は見ます――料理人でなければ料理は作れません
+    </span>
+  </div>
   <div class="row">
     <label>職業</label>
     <select id="job" onchange="render()">
@@ -1618,6 +1627,12 @@ function setMode(m) {
         || (m === "medicine" && isSyringe())) ? "" : "none");
   document.querySelectorAll(".only-enchant").forEach(
     e => e.style.display = (m === "weapon" || m === "armor") ? "" : "none");
+  // 🔴 <b>「全員に配る」は運営だけ</b>（人間の指示 2026-08-30）。
+  //    ⚠️ <b>参加者に出すと、自分の枠を使わずにいくらでも登録できてしまう。</b>
+  //    ⚠️ <b>薬と中間素材はもとから全員ぶん</b>なので、欄そのものを出さない。
+  const canGive = adminOn && m !== "medicine" && m !== "material";
+  document.getElementById("rowEveryone").style.display = canGive ? "" : "none";
+  if (!canGive) { document.getElementById("everyone").checked = false; }
   // 🔴 明るさは建材・家具・洋服で使う
   document.querySelectorAll(".only-glow").forEach(
     e => e.style.display = (solid || m === "clothes") ? "" : "none");
@@ -2764,6 +2779,8 @@ function setAdmin(on) {
     mode = "food";      // ⚠️ setMode の見張りに引っかからないよう、先に戻す
     setMode("food");
   }
+  // 🔴 「全員に配る」の欄は運営モードで出し入れする。setMode に持たせてある
+  setMode(mode);
   drawMaterials();
   drawEffects(); render();
 }
@@ -4160,6 +4177,9 @@ function goods() {
     ingredients: items
       .filter(i => i && i.item)
       .map(i => ({ item: i.item, count: i.count || 1 })),
+    // 🔴 運営が全員に配るレシピ（人間の指示 2026-08-30）。
+    //    ⚠️ 薬と中間素材は下でかならず true にする（もとからそういう決まり）
+    open: on("everyone"),
   };
   // 🔴 卸値は材料から自動で出す（裁定 2026-08-24）。
   // 🔴 <b>売値はここでは決めない</b>（人間の判断 2026-08-27）――
@@ -5276,6 +5296,8 @@ function fromGoods(g) {
   document.getElementById("shop").value = g.shop || "";
   document.getElementById("note").value = g.note || "";
   document.getElementById("owner").value = g.owner || "";
+  // 🔴 運営が全員に配るレシピか。⚠️ setMode が運営モードでなければ落とす
+  document.getElementById("everyone").checked = !!g.open;
   document.getElementById("job").value = g.job || "cook";
   document.getElementById("seconds").value = g.seconds || 0;
   // ⚠️ 昔の定義には kind しか無いので、そのときは kind から拾う
