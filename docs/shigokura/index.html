@@ -1000,12 +1000,7 @@ function paletteInit() {
  * この道具も配り直す。⚠️ <b>手で書かない</b>――`tools/publish-editor.py` が書く。
  */
 /* MATERIALS:BEGIN */
-const BUILTIN_MATERIALS = [
-  {
-    "id": "test_sozai",
-    "name": "検査：中間素材"
-  }
-];
+const BUILTIN_MATERIALS = [];
 /* MATERIALS:END */
 
 /** 手元で足したもの。⚠️ 配られてくる一覧に無いものだけ残る。 */
@@ -1509,7 +1504,34 @@ function setSide(s) {
  * <p>🔴 <b>参加者に見えるのは冒険者・料理人・建築家の3職ぶんだけ</b>
  * （人間の指示 2026-08-23）。⚠️ <b>スキンは職業と関係ないので、いつでも見える。</b>
  */
-const ADMIN_MODES = ["material", "clothes", "hata", "weapon", "armor", "medicine"];
+/**
+ * 運営だけが作れるもの。
+ *
+ * 🔴 <b>裁定「第1弾は G・自販機・キョウクラを開ける。3職で始める」の訂正</b>
+ * （2026-08-30）で、<b>呉服屋と医師も開いた</b>。
+ * ⚠️ <b>だから洋服・旗・薬は参加者にも見せる。</b>
+ *
+ * <p>⚠️ <b>武器と防具は鍛冶屋のもので、まだ開いていない。</b>
+ * ⚠️ <b>中間素材は「覚えている一覧」を運営が育てるところ</b>なので、運営のまま。
+ */
+const ADMIN_MODES = ["material", "weapon", "armor"];
+
+/** 参加者にも見せるタブ。⚠️ 職業が開いたぶんだけ増える。 */
+const OPEN_MODES = ["clothes", "hata", "medicine"];
+
+/**
+ * 参加者にも見せるタブを出す。
+ *
+ * 🔴 <b>職業が開いたぶんだけ増える</b>（裁定 2026-08-30 の訂正）。
+ * ⚠️ <b>閉じている職業のタブを出すと、作っても工房に並ばない</b>――
+ * <b>作れないものを作らせない。</b>
+ */
+function showOpenModes() {
+  OPEN_MODES.forEach(k => {
+    const b = document.getElementById("m-" + k);
+    if (b) { b.style.display = ""; }
+  });
+}
 
 function setMode(m) {
   // 🔴 <b>運営でないなら、運営だけのタブへは行かせない</b>（人間の指摘 2026-08-27）。
@@ -2724,9 +2746,8 @@ function setAdmin(on) {
   document.getElementById("adminBtn").classList.toggle("on", on);
   document.getElementById("adminNote").style.display = on ? "" : "none";
   document.getElementById("m-material").style.display = on ? "" : "none";
-  // 🔴 洋服と旗は運営だけ（人間の指示 2026-08-23）。
-  //    参加者に見えるのは冒険者・料理人・建築家の3職ぶんだけ。
-  //    ⚠️ スキンは職業と関係ないので、いつでも見える
+  // 🔴 運営だけのタブ（武器・防具）を出し入れする。
+  //    ⚠️ 洋服・旗・薬は参加者にも見えるので、ここでは触らない
   ADMIN_MODES.filter(k => k !== "material").forEach(k => {
     document.getElementById("m-" + k).style.display = on ? "" : "none";
   });
@@ -5329,6 +5350,7 @@ function newDish() {
   drawItems(); drawEffects(); render();
 }
 
+showOpenModes();
 drawSideRow();
 drawViewFaces();
 drawRecent();
