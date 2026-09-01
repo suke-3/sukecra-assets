@@ -142,7 +142,7 @@
       <span class="spacer"></span>
       <button class="primary small" onclick="undo()">⟲ 元に戻す</button>
       <button class="small danger" id="clearBtn" onclick="clearAll()">全部消す</button>
-      <button class="small on only-clothes" id="guideBtn" style="display:none"
+      <button class="small on" id="guideBtn" style="display:none"
               onclick="toggleGuide()">目印：出す</button>
     </div>
 
@@ -317,7 +317,7 @@
   </div>
   <div class="row only-weapon" style="display:none">
     <label>武器種</label>
-    <select id="base" onchange="drawEnchants(); drawItems(); render()"></select>
+    <select id="base" onchange="drawEnchants(); drawItems(); drawPaint(); render()"></select>
     <span class="hint" id="baseHint" style="flex:1"></span>
   </div>
   <div class="row only-weapon" style="display:none">
@@ -563,6 +563,121 @@ const BASES = [
   ["trident", "トライデント", "投げられる。水中で強い", true],
   ["mace", "メイス", "高いところから落ちながら叩くと強い", true]
 ];
+
+/**
+ * 武器の下絵。
+ *
+ * 🔴 <b>武器種ごとに切り替えて出す</b>（人間の指示 2026-09-02）。
+ * <b>持ち方は型ごとに決まっている</b>ので、向きを合わせずに描くと、
+ * <b>その武器だけ変な持ち方になる</b>。
+ *
+ * <p>⚠️ <b>バニラの絵を写したものではない。</b> 他所の著作物を配ることになるため、
+ * <b>向き・握り・弦の位置を示すだけの線</b>にしてある。<b>なぞる必要はない。</b>
+ *
+ * <p>記号の意味――
+ * <code>+</code> おすすめの輪郭／<code>H</code> 握るところ／
+ * <code>S</code> 🔴 <b>弦</b>（弓とクロスボウは<b>ここに描いた色が引く動きで動く</b>）／
+ * <code>A</code> 矢の通り道。
+ */
+const WEAPON_GUIDE = {
+  sword: [
+    "...............+", "..............++", ".............++.", "............++..", "...........++...", "..........++....", ".........++.....", "........+.......",
+    ".......+........", "......+.........", "....+++.........", "....+++.........", "...H+++.........", "..H.............", ".H..............", "H..............."],
+  pickaxe: [
+    "...............+", "..............+.", "............++..", "..........+++...", ".........+.+..+.", "..........+.++..", ".........+.+....", "........+.......",
+    ".......+........", "......+.........", ".....+..........", "....+...........", "...H............", "..H.............", ".H..............", "H..............."],
+  spear: [
+    ".............+++", "..............++", ".............+..", "............+...", "...........+....", "..........+.....", ".........+......", "........+.......",
+    ".......+........", "......+.........", ".....H..........", "....H...........", "...H............", "..H.............", ".H..............", "H..............."],
+  axe: [
+    "...............+", "..........+++++.", "..........+++++.", "..........+++++.", "..........+++++.", "..........+++++.", ".........+......", "........+.......",
+    ".......+........", "......+.........", ".....+..........", "....+...........", "...H............", "..H.............", ".H..............", "H..............."],
+  hoe: [
+    "...............+", "..........+++++.", "..........+++++.", "..........+.+...", "...........+....", "..........+.....", ".........+......", "........+.......",
+    ".......+........", "......+.........", ".....+..........", "....+...........", "...H............", "..H.............", ".H..............", "H..............."],
+  shovel: [
+    "...............+", "...........++++.", "...........++++.", "...........++++.", "...........++++.", "..........+.....", ".........+......", "........+.......",
+    ".......+........", "......+.........", ".....+..........", "....+...........", "...H............", "..H.............", ".H..............", "H..............."],
+  shears: [
+    "...............+", "..........+...+.", "...........+.+..", "............+...", "...........+.+..", "..........+...+.", ".........+......", "........+.......",
+    ".......+........", "......+.........", ".....+..........", "....+...........", "...+............", "..H.............", ".H..............", "H..............."],
+  mace: [
+    "...............+", "..............+.", "..........+++++.", "..........+++++.", "..........+++++.", "..........+++++.", ".........++++++.", "........+.......",
+    ".......+........", "......+.........", ".....+..........", "....+...........", "...H............", "..H.............", ".H..............", "H..............."],
+  trident: [
+    "...............+", "............+.+.", "...........+.+..", "..........+.+.+.", "...........+.+..", "..........+.+...", ".........+......", "........+.......",
+    ".......+........", "......+.........", ".....+..........", "....H...........", "...H............", "..H.............", ".H..............", "H..............."],
+  fishing_rod: [
+    "...............+", "..............+.", ".............+.S", "............+..S", "...........+...S", "..........+....S", ".........+.....S", "........+......S",
+    ".......+.......S", "......+........S", ".....+........S.", "....+...........", "...H............", "..H.............", ".H..............", "H..............."],
+  bow: [
+    "................", "....+S..........", "....+S..........", "...+.S..........", "..+..S..........", "..+..S..........", "..HH.S..........", "..HH.S..........",
+    "AAAAAS..........", "..HH.S..........", "..+..S..........", "..+..S..........", "...+.S..........", "....+S..........", "....+S..........", "................"],
+  crossbow: [
+    "................", "................", "................", "...+.S..........", "...+.S..........", "...+.S..........", "...+.S..........", ".++++++++++++...",
+    "AAAAA++++++++...", ".++++++++++++...", "...+.S..HHHH....", "...+.S..HHHH....", "...+.S..HHHH....", "...+.S..........", "................", "................"],
+  shield: [
+    "................", "...++++++++++...", "...++++++++++...", "...++++++++++...", "...++++++++++...", "...++++HH++++...", "...++++HH++++...", "...++++HH++++...",
+    "...++++HH++++...", "...++++++++++...", "...++++++++++...", "...++++++++++...", "...++++++++++...", "....++++++++....", ".....++++++.....", "................"],
+};
+
+/** 下絵の色。🔴 弦だけ赤くする――ここだけは動きに直結するため。 */
+const GUIDE_INK = {
+  "+": "rgba(120,170,255,0.30)",
+  "H": "rgba(255,170,60,0.38)",
+  "S": "rgba(255,60,60,0.45)",
+  "A": "rgba(160,160,160,0.22)"
+};
+
+/**
+ * 型ごとの持ち方。
+ *
+ * 🔴 <b>26.2 のクライアントから写した実測値</b>（2026-09-02）。
+ * <code>assets/minecraft/models/item/</code> の handheld・bow・crossbow・shield。
+ * ⚠️ <b>目分量で書かない。</b>持ち方は数値がすべてで、少しずれると手にめり込む。
+ *
+ * <p>🔴 <b>左手ぶんも書く。</b> 書かないと右手の値がそのまま使われ、
+ * <b>左手に持つと刃が逆を向く</b>（左手は鏡写しの値になっている）。
+ * ⚠️ 料理のように向きの無いものは、右と同じでも困らない。
+ *
+ * <p>⚠️ <b>インベントリ（gui）は書かない。</b> 書かないと描いた絵が正面を向く。
+ * バニラの盾は gui を持っていて斜めに倒れるが、
+ * <b>ここは「描いたまま出る」を優先する</b>。
+ */
+const HOLD_HANDHELD = {
+  thirdperson_righthand: { rotation:[0,-90,55], translation:[0,4,0.5], scale:[0.85,0.85,0.85] },
+  thirdperson_lefthand:  { rotation:[0,90,-55], translation:[0,4,0.5], scale:[0.85,0.85,0.85] },
+  firstperson_righthand: { rotation:[0,-90,25], translation:[1.13,3.2,1.13], scale:[0.68,0.68,0.68] },
+  firstperson_lefthand:  { rotation:[0,90,-25], translation:[1.13,3.2,1.13], scale:[0.68,0.68,0.68] }
+};
+
+const HOLD = {
+  bow: {
+    thirdperson_righthand: { rotation:[-80,260,-40], translation:[-1,-2,2.5], scale:[0.9,0.9,0.9] },
+    thirdperson_lefthand:  { rotation:[-80,-280,40], translation:[-1,-2,2.5], scale:[0.9,0.9,0.9] },
+    firstperson_righthand: { rotation:[0,-90,25], translation:[1.13,3.2,1.13], scale:[0.68,0.68,0.68] },
+    firstperson_lefthand:  { rotation:[0,90,-25], translation:[1.13,3.2,1.13], scale:[0.68,0.68,0.68] }
+  },
+  crossbow: {
+    thirdperson_righthand: { rotation:[-90,0,-60], translation:[2,0.1,-3], scale:[0.9,0.9,0.9] },
+    thirdperson_lefthand:  { rotation:[-90,0,30],  translation:[2,0.1,-3], scale:[0.9,0.9,0.9] },
+    firstperson_righthand: { rotation:[-90,0,-55], translation:[1.13,3.2,1.13], scale:[0.68,0.68,0.68] },
+    firstperson_lefthand:  { rotation:[-90,0,35],  translation:[1.13,3.2,1.13], scale:[0.68,0.68,0.68] }
+  },
+  shield: {
+    thirdperson_righthand: { rotation:[0,90,0], translation:[10,6,-4], scale:[1,1,1] },
+    thirdperson_lefthand:  { rotation:[0,90,0], translation:[10,6,12], scale:[1,1,1] },
+    firstperson_righthand: { rotation:[0,180,5], translation:[-10,1.75,-10], scale:[1.25,1.25,1.25] },
+    firstperson_lefthand:  { rotation:[0,180,5], translation:[10,0,-10], scale:[1.25,1.25,1.25] },
+    ground: { rotation:[0,0,0], translation:[2,4,2], scale:[0.25,0.25,0.25] },
+    fixed:  { rotation:[0,180,0], translation:[-4.5,4.5,-5], scale:[0.55,0.55,0.55] }
+  }
+};
+
+/** その型の持ち方。⚠️ 書いていない型は剣と同じ持ち方（handheld）。 */
+function holdOf(base) {
+  return HOLD[base] || HOLD_HANDHELD;
+}
 
 /** 近づいて殴る型。⚠️ 盾・弓・クロスボウ以外。 */
 const B_MELEE =
@@ -1613,6 +1728,9 @@ function setMode(m) {
     e => e.style.display = (m === "clothes") ? "" : "none");
   document.querySelectorAll(".only-weapon").forEach(
     e => e.style.display = (m === "weapon") ? "" : "none");
+  // 🔴 目印は洋服・スキン・防具・武器で使う。⚠️ 前は洋服だけに付いていた
+  document.getElementById("guideBtn").style.display =
+      (m === "clothes" || m === "skin" || m === "armor" || m === "weapon") ? "" : "none";
   document.querySelectorAll(".only-armor").forEach(
     e => e.style.display = (m === "armor") ? "" : "none");
   // 🔴 薬のタブ。⚠️ 注射器のときは効果もベッドの欄も出さない
@@ -1937,12 +2055,33 @@ function drawPaint() {
     });
   }
   drawArmorGuide(C);
+  drawWeaponGuide(C);
   pctx.strokeStyle = "#8884"; pctx.lineWidth = 1;
   for (let i=0;i<=gw();i++) {
     pctx.beginPath(); pctx.moveTo(i*C,0); pctx.lineTo(i*C,gh()*C); pctx.stroke();
   }
   for (let i=0;i<=gh();i++) {
     pctx.beginPath(); pctx.moveTo(0,i*C); pctx.lineTo(gw()*C,i*C); pctx.stroke();
+  }
+}
+
+/**
+ * 武器の下絵を描く。
+ *
+ * ⚠️ <b>絵の下ではなく上に薄く重ねる。</b>下に置くと、
+ * 描いた色で隠れて<b>どこが弦か分からなくなる</b>。
+ */
+function drawWeaponGuide(C) {
+  if (mode !== "weapon" || !showGuide) { return; }
+  const g = WEAPON_GUIDE[val("base")];
+  if (!g) { return; }
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      const ink = GUIDE_INK[g[y][x]];
+      if (!ink) { continue; }
+      pctx.fillStyle = ink;
+      pctx.fillRect(x*C, y*C, C, C);
+    }
   }
 }
 
@@ -4576,6 +4715,30 @@ function extrude(mask) {
   return els;
 }
 
+/**
+ * 持ち方。
+ *
+ * 🔴 <b>武器だけ型ごとに変える</b>（人間の指示 2026-09-02）。
+ * ⚠️ <b>それ以外は今までどおり。</b>料理は本番で正しく持てているので触らない。
+ *
+ * <p>⚠️ <b>武器を今までの値で持つと、他人からは平たく前に突き出して見える。</b>
+ * 一人称だけバニラの武器と同じ値で、第三者視点が料理のままだった。
+ */
+function displayOf() {
+  const food = {
+    ground: { rotation:[0,0,0], translation:[0,2,0], scale:[0.5,0.5,0.5] },
+    head:   { rotation:[0,180,0], translation:[0,13,7], scale:[1,1,1] },
+    thirdperson_righthand: { rotation:[0,0,0], translation:[0,3,1], scale:[0.55,0.55,0.55] },
+    firstperson_righthand: { rotation:[0,-90,25], translation:[1.13,3.2,1.13], scale:[0.68,0.68,0.68] },
+    fixed: { rotation:[0,180,0], scale:[1,1,1] }
+  };
+  if (mode !== "weapon") { return food; }
+  // ⚠️ 置いたときと頭に載せたときは、型で変わらない
+  return Object.assign(
+      { ground: food.ground, head: food.head, fixed: food.fixed },
+      holdOf(val("base")));
+}
+
 function model() {
   const id = val("id");
   if (mode === "furniture") { return furnitureModel(id); }
@@ -4597,13 +4760,7 @@ function model() {
       particle: "sukecra:item/" + id
     },
     elements: extrude(solidMask()),
-    display: {
-      ground: { rotation:[0,0,0], translation:[0,2,0], scale:[0.5,0.5,0.5] },
-      head:   { rotation:[0,180,0], translation:[0,13,7], scale:[1,1,1] },
-      thirdperson_righthand: { rotation:[0,0,0], translation:[0,3,1], scale:[0.55,0.55,0.55] },
-      firstperson_righthand: { rotation:[0,-90,25], translation:[1.13,3.2,1.13], scale:[0.68,0.68,0.68] },
-      fixed: { rotation:[0,180,0], scale:[1,1,1] }
-    }
+    display: displayOf()
   };
 }
 
@@ -5148,6 +5305,159 @@ function download(name, data, type) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
+/** 引く絵が要る型。⚠️ ここに無い型は1枚で足りる。 */
+const PULLS = ["bow", "crossbow"];
+
+/** 引く深さ（マス）。⚠️ 3段階。バニラも3枚。 */
+const PULL_DEPTH = [2, 3, 4];
+
+/** 下絵から、その記号のマスを集める。 */
+function guideCells(guide, ch) {
+  const out = [];
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      if (guide[y][x] === ch) { out.push([x, y]); }
+    }
+  }
+  return out;
+}
+
+/** 裏の面ぶんの下絵。⚠️ 裏は鏡写しなので、下絵も裏返す。 */
+function mirrorGuide(guide) {
+  return guide.map(row => row.split("").reverse().join(""));
+}
+
+/**
+ * 弦を引いた絵を作る。
+ *
+ * 🔴 <b>動かすのは弦と矢だけ</b>（人間の判断 2026-09-02）。
+ * ⚠️ <b>弓そのもののしなりは作らない。</b> 元の絵から
+ * 「どこが腕で、どっちへ曲がるか」は読み取れないため。
+ * バニラは1枚ずつ手で描いている。
+ *
+ * <p>弦は<b>真ん中ほど深く、両端は動かない</b>。V字になる。
+ * 矢は<b>弦と同じだけ後ろへ下がる</b>（つがえたまま引くため）。
+ *
+ * @param src  元の絵（16×16 の色）
+ * @param guide その面の下絵
+ * @param d    引いた深さ。0 なら休め（矢は出さない）
+ * @param dir  引く向き。表は +1、裏は -1
+ */
+function pulled(src, guide, d, dir) {
+  const g = src.map(r => r.slice());
+  const str = guideCells(guide, "S");
+  const arr = guideCells(guide, "A");
+
+  // 元の弦と矢をいったん消す
+  const inks = {};
+  str.concat(arr).forEach(([x, y]) => { inks[x + "," + y] = g[y][x]; g[y][x] = null; });
+
+  // 🔴 休めのときは弦を元の場所へ戻し、矢だけ出さない。
+  //    ⚠️ 弦まで消すと、休めの弓が「枠だけ」になる。
+  //    バニラの弓にも弦はあり、矢だけが無い。
+  if (d <= 0) {
+    str.forEach(([x, y]) => { g[y][x] = inks[x + "," + y]; });
+    return g;
+  }
+
+  const ys = str.map(c => c[1]);
+  const top = Math.min.apply(null, ys), bot = Math.max.apply(null, ys);
+  const mid = (top + bot) / 2, half = Math.max(1, (bot - top) / 2);
+  str.forEach(([x, y]) => {
+    const deep = Math.round(d * (1 - Math.abs(y - mid) / half));
+    const nx = x + dir * deep;
+    const ink = inks[x + "," + y];
+    if (ink && nx >= 0 && nx < N) { g[y][nx] = ink; }
+  });
+  arr.forEach(([x, y]) => {
+    const nx = x + dir * d;
+    const ink = inks[x + "," + y];
+    if (ink && nx >= 0 && nx < N) { g[y][nx] = ink; }
+  });
+  return g;
+}
+
+/**
+ * 絵を入れ替えて、その形のモデルを作る。
+ *
+ * ⚠️ <b>モデルは今の絵から組み立てられる</b>ので、
+ * 引いた絵のモデルを作るには、いったん絵を差し替えるしかない。
+ * <b>ベッドの頭と足で同じことをしている。</b>
+ */
+function modelOf(front, back, id) {
+  // 🔴 名前も差し替える。モデルは <b>今の ID から絵の置き場所を組み立てる</b>ので、
+  //    差し替えないと<b>引いた3枚とも元の絵を指す</b>――引いても見た目が変わらない。
+  const box = document.getElementById("id");
+  const keepF = sides.front, keepB = sides.back, keepId = box.value;
+  sides.front = front; sides.back = back;
+  if (id) { box.value = id; }
+  let out;
+  try { out = model(); }
+  finally { sides.front = keepF; sides.back = keepB; box.value = keepId; }
+  return out;
+}
+
+/** 弓・クロスボウの一式（絵とモデル）を出す。 */
+function savePulling(id, base) {
+  const gf = WEAPON_GUIDE[base], gb = mirrorGuide(gf);
+  // 休め――矢を消したもの
+  const restF = pulled(sides.front, gf, 0, 1);
+  const restB = pulled(sides.back, gb, 0, -1);
+  pngBlob(restF, b => download(id + ".png", b));
+  pngBlob(restB, b => download(id + "_back.png", b));
+  download(id + ".model.json", JSON.stringify(modelOf(restF, restB, id), null, 2));
+  // 引く3段階
+  PULL_DEPTH.forEach((d, i) => {
+    const f = pulled(sides.front, gf, d, 1);
+    const b = pulled(sides.back, gb, d, -1);
+    pngBlob(f, blob => download(id + "_pulling_" + i + ".png", blob));
+    pngBlob(b, blob => download(id + "_pulling_" + i + "_back.png", blob));
+    download(id + "_pulling_" + i + ".model.json",
+             JSON.stringify(modelOf(f, b, id + "_pulling_" + i), null, 2));
+  });
+  download(id + ".item.json", JSON.stringify(pullItem(id, base), null, 2));
+}
+
+/**
+ * 引く動きの割り当て。
+ *
+ * 🔴 <b>26.2 の <code>assets/minecraft/items/bow.json</code> と
+ * <code>crossbow.json</code> をそのまま写した</b>（2026-09-02）。
+ * ⚠️ <b>境目の数字（0.65 / 0.9 / 0.58 / 1.0）はバニラの値。</b>
+ * 変えると引き具合と絵がずれる。
+ *
+ * <p>⚠️ <b>クロスボウの「つがえた状態」はバニラだと別の絵</b>だが、
+ * ここでは休めの絵を使い回している。
+ */
+function pullItem(id, base) {
+  const m = n => ({ type:"minecraft:model", model:"sukecra:item/" + n });
+  const p = i => m(id + "_pulling_" + i);
+  if (base === "bow") {
+    return { model: {
+      type: "minecraft:condition", property: "minecraft:using_item",
+      on_false: m(id),
+      on_true: {
+        type: "minecraft:range_dispatch", property: "minecraft:use_duration",
+        scale: 0.05, fallback: p(0),
+        entries: [ { threshold:0.65, model:p(1) }, { threshold:0.9, model:p(2) } ]
+      }
+    } };
+  }
+  return { model: {
+    type: "minecraft:select", property: "minecraft:charge_type",
+    cases: [ { when:"arrow", model:m(id) }, { when:"rocket", model:m(id) } ],
+    fallback: {
+      type: "minecraft:condition", property: "minecraft:using_item",
+      on_false: m(id),
+      on_true: {
+        type: "minecraft:range_dispatch", property: "minecraft:crossbow/pull",
+        fallback: p(0),
+        entries: [ { threshold:0.58, model:p(1) }, { threshold:1.0, model:p(2) } ]
+      }
+    }
+  } };
+}
+
 function saveAll() {
   // 🔴 スキンは品物ではない。絵を1枚出すだけ
   if (mode === "skin") {
@@ -5181,8 +5491,14 @@ function saveAll() {
     return;
   }
   download(id + ".json", JSON.stringify(goods(), null, 2));
+
+  // 🔴 弓とクロスボウは1枚では足りない。引く3段階まで一式で出す（2026-09-02）
+  const pulling = (mode === "weapon" && PULLS.indexOf(val("base")) >= 0);
+
   // ⚠️ 旗は見た目の指定を持たない。バニラの旗そのものになる
-  if (mode === "clothes" || mode === "armor") {
+  if (pulling) {
+    savePulling(id, val("base"));
+  } else if (mode === "clothes" || mode === "armor") {
     // ⚠️ 持ち物の中では小さい絵を使う。着たときの絵とは別
     download(id + ".model.json", JSON.stringify({
       parent: "minecraft:item/generated",
@@ -5211,7 +5527,9 @@ function saveAll() {
                model: "sukecra:" + (twoSided() ? "item/" : "block/") + id }
     }, null, 2));
   }
-  if (mode === "hata") {
+  if (pulling) {
+    // ⚠️ 絵は savePulling がまとめて出している。ここでは何もしない
+  } else if (mode === "hata") {
     // 🔴 旗の絵は 64×64。前と後ろの2か所へ同じ絵を置く（後ろは鏡写し）
     hataBlob(b => download(id + ".png", b));
   } else if (mode === "clothes") {
