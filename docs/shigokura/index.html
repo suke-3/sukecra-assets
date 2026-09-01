@@ -5342,8 +5342,9 @@ function mirrorGuide(guide) {
  * @param guide その面の下絵
  * @param d    引いた深さ。0 なら休め（矢は出さない）
  * @param dir  引く向き。表は +1、裏は -1
+ * @param arrowD 矢だけ別の深さにしたいとき。省くと弦と同じ
  */
-function pulled(src, guide, d, dir) {
+function pulled(src, guide, d, dir, arrowD) {
   const g = src.map(r => r.slice());
   const str = guideCells(guide, "S");
   const arr = guideCells(guide, "A");
@@ -5369,8 +5370,9 @@ function pulled(src, guide, d, dir) {
     const ink = inks[x + "," + y];
     if (ink && nx >= 0 && nx < N) { g[y][nx] = ink; }
   });
+  const ad = (arrowD === undefined) ? d : arrowD;
   arr.forEach(([x, y]) => {
-    const nx = x + dir * d;
+    const nx = x + dir * ad;
     const ink = inks[x + "," + y];
     if (ink && nx >= 0 && nx < N) { g[y][nx] = ink; }
   });
@@ -5415,6 +5417,19 @@ function savePulling(id, base) {
     download(id + "_pulling_" + i + ".model.json",
              JSON.stringify(modelOf(f, b, id + "_pulling_" + i), null, 2));
   });
+  // 🔴 クロスボウの「つがえた状態」（人間の指示 2026-09-02）。
+  //    ⚠️ 弓には無い。引くのをやめれば矢は飛んでいくため。
+  //    ✅ バニラでも引き2とほぼ同じ絵（実測で 252/256 一致）で、
+  //    <b>違うのは矢の位置だけ</b>――つがえたほうが1マス前に出ている。
+  if (base === "crossbow") {
+    const last = PULL_DEPTH[PULL_DEPTH.length - 1];
+    const cf = pulled(sides.front, gf, last, 1, last - 1);
+    const cb = pulled(sides.back, gb, last, -1, last - 1);
+    pngBlob(cf, b => download(id + "_charged.png", b));
+    pngBlob(cb, b => download(id + "_charged_back.png", b));
+    download(id + "_charged.model.json",
+             JSON.stringify(modelOf(cf, cb, id + "_charged"), null, 2));
+  }
   download(id + ".item.json", JSON.stringify(pullItem(id, base), null, 2));
 }
 
@@ -5426,8 +5441,8 @@ function savePulling(id, base) {
  * ⚠️ <b>境目の数字（0.65 / 0.9 / 0.58 / 1.0）はバニラの値。</b>
  * 変えると引き具合と絵がずれる。
  *
- * <p>⚠️ <b>クロスボウの「つがえた状態」はバニラだと別の絵</b>だが、
- * ここでは休めの絵を使い回している。
+ * <p>🔴 <b>クロスボウの「つがえた状態」は別の絵を作る</b>（2026-09-02）。
+ * ⚠️ <b>花火をつがえたときも同じ絵</b>――花火の見た目は描いてもらった絵から作れない。
  */
 function pullItem(id, base) {
   const m = n => ({ type:"minecraft:model", model:"sukecra:item/" + n });
@@ -5443,9 +5458,12 @@ function pullItem(id, base) {
       }
     } };
   }
+  // 🔴 つがえたら休めの絵ではなく、つがえた絵を出す。
+  //    ⚠️ 花火も同じ絵を使う――<b>花火の見た目は描いてもらった絵から作れない</b>。
+  const charged = m(id + "_charged");
   return { model: {
     type: "minecraft:select", property: "minecraft:charge_type",
-    cases: [ { when:"arrow", model:m(id) }, { when:"rocket", model:m(id) } ],
+    cases: [ { when:"arrow", model:charged }, { when:"rocket", model:charged } ],
     fallback: {
       type: "minecraft:condition", property: "minecraft:using_item",
       on_false: m(id),
