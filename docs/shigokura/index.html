@@ -90,7 +90,7 @@
   <button id="m-material" onclick="setMode('material')" style="display:none">🧂 中間素材</button>
   <button id="newBtn" onclick="newDish()">新しい料理</button>
   <button onclick="document.getElementById('load').click()">読み込む</button>
-  <input type="file" id="load" accept=".json,.png" style="display:none" onchange="loadFile(event)">
+  <input type="file" id="load" accept=".json,.png" multiple style="display:none" onchange="loadFile(event)">
   <span class="spacer"></span>
   <button id="theme" class="small" onclick="cycleTheme()">画面：端末に合わせる</button>
   <button id="adminBtn" class="small" onclick="toggleAdmin()">運営モード：切</button>
@@ -4572,15 +4572,33 @@ function furnitureModel(id) {
  */
 function shapeBoxes() {
   const out = [];
-  mergeVoxels().boxes.forEach(b => {
+  mergeVoxels(solidVoxels()).boxes.forEach(b => {
     out.push(b.x, N - 1 - b.y2, b.z, b.x2 + 1, N - b.y, b.z2 + 1);
   });
   return out;
 }
 
-/** 家具の箱の数。⚠️ 多いほど置いたときに重くなる。 */
+/**
+ * 色を落として「あるか無いか」だけにした立体。
+ *
+ * 🔴 <b>当たり判定は色を見ない</b>（2026-09-02）。
+ * ⚠️ <b>色ごとに切っていたのが間違いだった。</b> 影を1段付けるだけで箱が分かれ、
+ * <b>形はただの石板なのに箱が何百個にもなっていた</b>。
+ * 実測（お墓）：<b>875個 → 5個</b>。見た目（模型）は色ごとのままでよい。
+ */
+function solidVoxels(vox) {
+  vox = vox || voxels;
+  return vox.map(l => l.map(r => r.map(c => c ? "#" : null)));
+}
+
+/** 当たり判定の箱の数。⚠️ 多いほど置いたときに重くなる。 */
 function furnitureBoxes() {
-  return mode === "furniture" ? mergeVoxels().boxes.length : 0;
+  return mode === "furniture" ? mergeVoxels(solidVoxels()).boxes.length : 0;
+}
+
+/** 模型の部品の数。⚠️ こちらは色ごとに分かれる。色数を増やすほど増える。 */
+function furnitureParts() {
+  return mode === "furniture" ? furnitureModel("x").elements.length : 0;
 }
 
 /**
@@ -4847,10 +4865,12 @@ function showBoxes() {
   if (!box) { return; }
   if (mode !== "furniture") { box.textContent = ""; return; }
   const n = furnitureBoxes();
-  box.textContent = "この家具の箱の数：" + n + " 個"
-    + (n > 40 ? "　🔴 多すぎます。彫りを減らしてください。" : "")
+  const p = furnitureParts();
+  box.textContent = "当たり判定の箱：" + n + " 個　／　模型の部品：" + p + " 個"
+    + (n > 40 ? "　🔴 箱が多すぎます。形を単純にしてください。" : "")
+    + (p > 400 ? "　🔴 部品が多すぎます。色数（影の段数）を減らしてください。" : "")
     + "　⚠️ 見える範囲に30個以上置くと、動作が重くなることがあります。";
-  box.className = "hint " + (n > 40 ? "bad" : "warn");
+  box.className = "hint " + (n > 40 || p > 400 ? "bad" : "warn");
 }
 
 function showOverflow() {
@@ -5586,8 +5606,37 @@ function saveAll() {
   ), 400);
 }
 
+/**
+ * 書き出したものを読み戻す。
+ *
+ * 🔴 <b>家具は3つ一緒に選ぶ</b>（2026-09-02）。
+ * ⚠️ <b>品物の定義（.json）には立体が入っていない。</b> 形と色は
+ * <b>模型（.model.json）と絵（.png）にしか無い</b>。
+ * ⚠️ <b>定義だけ読むと、数字と名前だけ戻って立体は前のまま</b>になる――
+ * <b>「デザインが壊れた」の正体はこれ</b>（実際に踏んだ 2026-09-02）。
+ */
 function loadFile(ev) {
-  const f = ev.target.files[0];
+  const all = Array.from(ev.target.files || []);
+  ev.target.value = "";
+  if (!all.length) { return; }
+  const isModel = n => n.endsWith(".model.json");
+  const isItem = n => n.endsWith(".item.json");
+  const model = all.find(f => isModel(f.name));
+  const pic = all.find(f => f.name.endsWith(".png"));
+  const goods = all.find(f => f.name.endsWith(".json")
+      && !isModel(f.name) && !isItem(f.name));
+  // 🔴 模型と絵がそろっていれば、立体ごと組み直す
+  if (model && pic) { loadSolid(goods, model, pic); return; }
+  if (model) {
+    alert("模型だけでは色が分かりません。" + chr10()
+        + "同じ名前の .png も一緒に選んでください。");
+    return;
+  }
+  loadOne(all[0]);
+}
+
+/** ファイルを1つだけ読む。⚠️ 昔からの読み方。 */
+function loadOne(f) {
   if (!f) { return; }
   if (f.name.endsWith(".png")) {
     const img = new Image();
@@ -5622,11 +5671,136 @@ function loadFile(ev) {
     };
     r.readAsText(f, "utf-8");
   }
-  ev.target.value = "";
+}
+
+/**
+ * 家具・建材を、模型と絵から立体ごと組み直す。
+ *
+ * 🔴 <b>模型は「外に出ている面」しか持っていない。</b>
+ * ⚠️ <b>そのまま読むと中が空になる</b>――空のまま書き出すと
+ * <b>内側の面まで描くことになり、模型が何倍にもふくらむ</b>。
+ * だから読み終わりに {@link fillInside} で中を詰める。
+ */
+function loadSolid(goodsFile, modelFile, picFile) {
+  const readText = f => new Promise((ok, ng) => {
+    const r = new FileReader();
+    r.onload = () => ok(r.result);
+    r.onerror = () => ng(new Error(f.name + " を読めません"));
+    r.readAsText(f, "utf-8");
+  });
+  const readPic = f => new Promise((ok, ng) => {
+    const i = new Image();
+    i.onload = () => ok(i);
+    i.onerror = () => ng(new Error(f.name + " を読めません"));
+    i.src = URL.createObjectURL(f);
+  });
+
+  Promise.all([readText(modelFile), readPic(picFile),
+      goodsFile ? readText(goodsFile) : Promise.resolve(null)])
+    .then(([modelText, img, goodsText]) => {
+      const m = JSON.parse(modelText);
+      if (!m.textures || !m.textures.p || !Array.isArray(m.elements)) {
+        alert("これは家具の模型ではありません。" + chr10()
+            + "「◯◯.model.json」を選んでください。");
+        return;
+      }
+      if (goodsText) { fromGoods(JSON.parse(goodsText), true); }
+
+      // 絵は「使った色を並べただけ」のもの。面の uv がその1マスを指している
+      const c = document.createElement("canvas");
+      c.width = N; c.height = N;
+      const cx = c.getContext("2d");
+      cx.drawImage(img, 0, 0, N, N);
+      const d = cx.getImageData(0, 0, N, N).data;
+      const colAt = (px, py) => {
+        const i = (py * N + px) * 4;
+        if (d[i+3] < 20) { return null; }
+        const hex = v => v.toString(16).padStart(2, "0");
+        return "#" + hex(d[i]) + hex(d[i+1]) + hex(d[i+2])
+            + (d[i+3] >= 250 ? "" : hex(d[i+3]));
+      };
+
+      snapshot();
+      const v = Array.from({length:N},
+          () => Array.from({length:N}, () => Array(N).fill(null)));
+      m.elements.forEach(el => {
+        const f = el.from, t = el.to;
+        const face = Object.values(el.faces || {})[0];
+        if (!face || !face.uv) { return; }
+        const col = colAt(face.uv[0], face.uv[1]);
+        // ⚠️ 上下がひっくり返っている。書き出しと同じ直し方で戻す
+        for (let z = f[2]; z < t[2]; z++) {
+          for (let y = N - t[1]; y <= N - 1 - f[1]; y++) {
+            for (let x = f[0]; x < t[0]; x++) { v[z][y][x] = col; }
+          }
+        }
+      });
+      fillInside(v);
+      voxels = v;
+      layer = 0;
+      setMode("furniture");
+      setSide(faces()[0][0]);
+      drawPaint();
+      render();
+    })
+    .catch(e => alert("読めませんでした：" + e.message));
+}
+
+/**
+ * 外から届かないところを、いちばん多い色で埋める。
+ *
+ * 🔴 <b>見えないところなので、何色でも見た目は変わらない。</b>
+ * ⚠️ <b>空けたままにすると内側が面になる。</b> それを描くぶんだけ重くなる。
+ */
+function fillInside(v) {
+  const out = Array.from({length:N},
+      () => Array.from({length:N}, () => Array(N).fill(false)));
+  const q = [];
+  for (let z = 0; z < N; z++) {
+    for (let y = 0; y < N; y++) {
+      for (let x = 0; x < N; x++) {
+        const edge = (z === 0 || z === N-1 || y === 0 || y === N-1
+            || x === 0 || x === N-1);
+        if (edge && !v[z][y][x] && !out[z][y][x]) {
+          out[z][y][x] = true;
+          q.push([z, y, x]);
+        }
+      }
+    }
+  }
+  const step = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+  for (let i = 0; i < q.length; i++) {
+    const z = q[i][0], y = q[i][1], x = q[i][2];
+    step.forEach(s => {
+      const a = z + s[0], b = y + s[1], c = x + s[2];
+      if (a < 0 || a >= N || b < 0 || b >= N || c < 0 || c >= N) { return; }
+      if (!out[a][b][c] && !v[a][b][c]) { out[a][b][c] = true; q.push([a, b, c]); }
+    });
+  }
+  const tally = {};
+  let best = null;
+  for (let z = 0; z < N; z++) {
+    for (let y = 0; y < N; y++) {
+      for (let x = 0; x < N; x++) {
+        const col = v[z][y][x];
+        if (!col) { continue; }
+        tally[col] = (tally[col] || 0) + 1;
+        if (!best || tally[col] > tally[best]) { best = col; }
+      }
+    }
+  }
+  if (!best) { return; }
+  for (let z = 0; z < N; z++) {
+    for (let y = 0; y < N; y++) {
+      for (let x = 0; x < N; x++) {
+        if (!v[z][y][x] && !out[z][y][x]) { v[z][y][x] = best; }
+      }
+    }
+  }
 }
 
 /** 書き出した品物の定義を読み戻す。 */
-function fromGoods(g) {
+function fromGoods(g, withSolid) {
   document.getElementById("id").value = g.id || "";
   document.getElementById("name").value = g.name || "";
   document.getElementById("shop").value = g.shop || "";
@@ -5673,6 +5847,15 @@ function fromGoods(g) {
     document.getElementById("sit").checked = !!g.sit;
     document.getElementById("chest").checked = !!g.chest;
     document.getElementById("sitHeight").value = g.sitHeight || 0.5;
+    // 🔴 立体は定義に入っていない（2026-09-02）。⚠️ 黙って前のままにしない
+    if (!withSolid) {
+      alert("数字と名前だけ読みました。" + chr10()
+          + "🔴 立体（形と色）はこの定義に入っていません。" + chr10() + chr10()
+          + "戻すには、もう一度「読み込む」で" + chr10()
+          + "　・" + (g.id || "◯◯") + ".model.json" + chr10()
+          + "　・" + (g.id || "◯◯") + ".png" + chr10()
+          + "の2つも一緒に選んでください。");
+    }
   } else {
     document.getElementById("nutrition").value = g.nutrition || 0;
     document.getElementById("saturation").value = g.saturation || 0;
