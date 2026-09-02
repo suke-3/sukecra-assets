@@ -366,10 +366,48 @@ function arenaCard(b) {
         }).join("")
       + '</div>'
       + '<p class="hint">🔴 <b>全部 0 のままだと使われません</b>'
-      + '（書き忘れて世界の原点へ飛ばされるのを防ぐため）。</p>';
+      + '（書き忘れて世界の原点へ飛ばされるのを防ぐため）。</p>'
+      + '<div class="row"><label>ボスの出る場所</label>'
+      + '<input type="checkbox"' + (sameSpot(a) ? " checked" : "")
+      + ' onchange="toggleBossSpot(this.checked)">'
+      + '<span class="hint">人と同じところに出す</span></div>'
+      + (sameSpot(a) ? ''
+         : '<div class="row"><label></label>'
+           + ["bossX", "bossY", "bossZ"].map(function (k) {
+               return '<input type="number" step="1" value="' + esc(a[k]) + '"'
+                    + ' oninput="setBossSpot(\'' + k + '\', this.value)">';
+             }).join("")
+           + '<span class="hint">⚠️ 世界は上と同じ</span></div>')
+      + '<p class="hint">⚠️ <b>ボスだけ別の世界には置けません。</b>'
+      + '離れていると戦いになりません。</p>';
   }
   return h + '</div>';
 }
+
+/** ボスを人と同じところに出すか。⚠️ 1つでも空なら「同じ」。 */
+function sameSpot(a) {
+  return a.bossX === null || a.bossY === null || a.bossZ === null
+      || a.bossX === undefined || a.bossY === undefined || a.bossZ === undefined;
+}
+
+/**
+ * ボスの出る場所を、人と同じにするか分けるか。
+ *
+ * 🔴 <b>分けたいのは、人が安全な場所に降りてから戦いを始めたいとき</b>。
+ * ⚠️ <b>同じ場所に出すと、飛んだ瞬間にボスと重なる。</b>
+ */
+function toggleBossSpot(same) {
+  var a = cur().arena;
+  if (same) {
+    a.bossX = null; a.bossY = null; a.bossZ = null;
+  } else {
+    // ⚠️ 人の行き先を種にする。0 から始めると原点を指してしまう
+    a.bossX = Math.round(a.x); a.bossY = Math.round(a.y); a.bossZ = Math.round(a.z);
+  }
+  render();
+}
+
+function setBossSpot(k, v) { cur().arena[k] = Math.round(Number(v)); }
 
 function toggleArena(on) {
   cur().arena = on
