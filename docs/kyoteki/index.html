@@ -482,7 +482,19 @@ function loadFile(ev) {
       into.forEach(function (x, i) {
         if (String(x[key]).toLowerCase() === String(one[key]).toLowerCase()) { at = i; }
       });
-      if (at >= 0) { into[at] = one; over++; } else { into.push(one); made++; }
+      if (at >= 0) {
+        // 🔴 <b>「出た時刻」だけはサーバー側を残す</b>（2026-09-02）。
+        //    ⚠️ <b>下書きの 0 で上書きすると、待ち時間が巻き戻って湧き放題になる。</b>
+        //    <b>大きいほう（新しいほう）を採る。</b>
+        var before = into[at].lastAt || 0;
+        var after = one.lastAt || 0;
+        if (before > after) { one = Object.assign({}, one, { lastAt: before }); }
+        into[at] = one;
+        over++;
+      } else {
+        into.push(one);
+        made++;
+      }
     });
     setTab(looksArea ? "area" : "boss");
     alert(what + " を読み込みました。" + "\n\n"
