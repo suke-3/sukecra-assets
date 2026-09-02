@@ -85,7 +85,7 @@
 //     ⚠️ ファイル名は変えない。名前で読み分けている。
 //
 //  🔴 書き出しは全部入れ替え。⚠️ いま入っているものを先に読み込んでから直す。
-//     ✅ 読み込みでは「足す」も選べる（同じ名前は新しいほうで置き換え）。
+//     ✅ 読み込みはいつも「足す」（同じ名前は新しいほうで置き換え）。
 //
 //  🔴 boss-areas.json はサーバーも書く（ボスが出た時刻を残すため）。
 //     ⚠️ 動かしたまま置くと、置いたものが上書きで消える。先に止めること。
@@ -472,32 +472,21 @@ function loadFile(ev) {
     var key = looksArea ? "name" : "id";
     var what = looksArea ? "出る範囲" : "ボス";
 
-    // 🔴 すでに中身があるときだけ聞く（2026-09-02）。
-    //    ⚠️ 黙って入れ替えると、いま画面で直していたものが消える。
-    var add = false;
-    if (into.length) {
-      add = confirm(
-          "いま " + into.length + " 件あります。\n\n"
-        + "「OK」…… 足す（同じ名前は新しいほうで置き換え）\n"
-        + "「キャンセル」…… 全部入れ替える");
-    }
+    // 🔴 いつも「足す」（2026-09-02）。
+    //    ⚠️ 入れ替えと2通りあると、どちらを選ぶ場面かが分からない。
+    //    同じ名前は新しいほうで置き換わるので、足すだけで直せる。
+    //    消したいものは、読み込んだあと画面の「消す」で消す。
     var made = 0, over = 0;
-    if (add) {
-      d.forEach(function (one) {
-        var at = -1;
-        into.forEach(function (x, i) {
-          if (String(x[key]).toLowerCase() === String(one[key]).toLowerCase()) { at = i; }
-        });
-        if (at >= 0) { into[at] = one; over++; } else { into.push(one); made++; }
+    d.forEach(function (one) {
+      var at = -1;
+      into.forEach(function (x, i) {
+        if (String(x[key]).toLowerCase() === String(one[key]).toLowerCase()) { at = i; }
       });
-    } else {
-      if (looksArea) { areas = d; } else { bosses = d; }
-      made = d.length;
-    }
+      if (at >= 0) { into[at] = one; over++; } else { into.push(one); made++; }
+    });
     setTab(looksArea ? "area" : "boss");
-    alert(add
-        ? (what + " を足しました。\n\n新しく " + made + " 件／置き換え " + over + " 件")
-        : (what + " を " + d.length + " 件 読み込みました（入れ替え）。"));
+    alert(what + " を読み込みました。" + "\n\n"
+        + "新しく " + made + " 件／同じ名前を置き換え " + over + " 件");
   };
   r.readAsText(f, "utf-8");
   ev.target.value = "";
