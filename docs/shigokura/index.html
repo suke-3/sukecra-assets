@@ -4544,13 +4544,15 @@ function furnitureModel(id) {
     if (open( 1, 0, 0)) { f.south = { uv, texture:"#p" }; }
     if (open(0, -1, 0)) { f.up    = { uv, texture:"#p" }; }
     if (open(0,  1, 0)) { f.down  = { uv, texture:"#p" }; }
-    if (open(0, 0, -1)) { f.west  = { uv, texture:"#p" }; }
-    if (open(0, 0,  1)) { f.east  = { uv, texture:"#p" }; }
+    // ⚠️ 左右をひっくり返すので、東と西も入れ替わる。
+    //    入れ替えないと、見えている面が消えて穴になる
+    if (open(0, 0, -1)) { f.east  = { uv, texture:"#p" }; }
+    if (open(0, 0,  1)) { f.west  = { uv, texture:"#p" }; }
     if (!Object.keys(f).length) { return; }   // 完全に中。出さない
 
     els.push({
-      from: [b.x, N - 1 - b.y2, b.z],
-      to:   [b.x2 + 1, N - b.y, b.z2 + 1],
+      from: [N - 1 - b.x2, N - 1 - b.y2, b.z],
+      to:   [N - b.x, N - b.y, b.z2 + 1],
       faces: f
     });
   });
@@ -4569,11 +4571,16 @@ function furnitureModel(id) {
  *
  * ⚠️ <b>上下がひっくり返る。</b> 絵は上から数え、ゲームは下から数えるので、
  * モデルの作り方（{@link furnitureModel}）と同じ直し方をする。
+ *
+ * <p>🔴 <b>左右もひっくり返る</b>（2026-09-03 に本番で踏んだ）。
+ * ⚠️ <b>正面から見ると、ゲームでは東が左に来る。</b> 絵は右へ描くので、
+ * <b>そのまま出すと文字が裏返る</b>。⚠️ <b>回しても直らない</b>――
+ * <b>裏返りは向きの問題ではない</b>ため。<b>ここで折り返す。</b>
  */
 function shapeBoxes() {
   const out = [];
   mergeVoxels(solidVoxels()).boxes.forEach(b => {
-    out.push(b.x, N - 1 - b.y2, b.z, b.x2 + 1, N - b.y, b.z2 + 1);
+    out.push(N - 1 - b.x2, N - 1 - b.y2, b.z, N - b.x, N - b.y, b.z2 + 1);
   });
   return out;
 }
@@ -5728,10 +5735,10 @@ function loadSolid(goodsFile, modelFile, picFile) {
         const face = Object.values(el.faces || {})[0];
         if (!face || !face.uv) { return; }
         const col = colAt(face.uv[0], face.uv[1]);
-        // ⚠️ 上下がひっくり返っている。書き出しと同じ直し方で戻す
+        // ⚠️ 上下も左右もひっくり返っている。書き出しと同じ直し方で戻す
         for (let z = f[2]; z < t[2]; z++) {
           for (let y = N - t[1]; y <= N - 1 - f[1]; y++) {
-            for (let x = f[0]; x < t[0]; x++) { v[z][y][x] = col; }
+            for (let mx = f[0]; mx < t[0]; mx++) { v[z][y][N - 1 - mx] = col; }
           }
         }
       });
