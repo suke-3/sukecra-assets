@@ -1010,6 +1010,60 @@ let voxels = Array.from({length:16},
 /** いま触っている奥行き。0 が手前。 */
 let layer = 0;
 
+/**
+ * 裏から見ているか。
+ *
+ * <p>🔴 <b>裏の面は、そのままだと左右が入れ替わって出る</b>（2026-09-03 に本番で踏んだ）。
+ * <b>1枚の絵で両側を賄う以上、どちらか片方は必ず折り返しになる</b>――避けようがない。
+ * ✅ <b>避けられないのは「データの向き」だけで、「描くときの向き」は変えられる。</b>
+ *
+ * <p>🔴 <b>入れると、立体そのものをひっくり返す</b>（{@link flipAround}）。
+ * ⚠️ <b>見せ方だけ裏返すと、ペン・塗りつぶし・スポイト・下の層の透け・立体プレビューの
+ * 5か所すべてで座標を変換することになり、必ずどれかで取りこぼす。</b>
+ * <b>中身をひっくり返せば、描く仕組みは一切触らなくてよい。</b>
+ *
+ * <p>⚠️ <b>書き出しは必ず表向きに戻してから</b>（{@link asFront}）。
+ */
+let backView = false;
+
+/** 左右を折り返す。⚠️ 立体1つぶん。 */
+function mirrorX(vox) {
+  return vox.map(l => l.map(r => r.slice().reverse()));
+}
+
+/**
+ * 立体ごとひっくり返す。
+ *
+ * <p>🔴 <b>左右を折り返し、層の順も逆にする。</b> こうすると
+ * <b>「裏へ回り込んで見ている」のと同じ</b>になる。
+ * ⚠️ <b>元に戻すの控えも一緒にひっくり返す</b>――
+ * 揃えないと、切り替えをまたいで戻したときに鏡写しが残る。
+ * ⚠️ <b>ベッドのもう片方も忘れない。</b>
+ */
+function flipAround() {
+  voxels = mirrorX(voxels.slice().reverse());
+  if (bedOther) { bedOther = mirrorX(bedOther.slice().reverse()); }
+  layer = N - 1 - layer;
+  history.forEach(h => {
+    if (h.voxels) {
+      h.voxels = mirrorX(h.voxels.slice().reverse());
+      h.layer = N - 1 - h.layer;
+    }
+  });
+}
+
+/**
+ * 表向きにして実行し、終わったら元へ戻す。
+ *
+ * <p>🔴 <b>書き出しは必ずここを通す。</b>
+ * ⚠️ <b>裏から見たまま出すと、作ったものが左右逆になる。</b>
+ */
+function asFront(fn) {
+  if (!backView) { return fn(); }
+  flipAround();
+  try { return fn(); } finally { flipAround(); }
+}
+
 /** いまの作りかた。food（料理）／block（建材）／furniture（家具）。 */
 let mode = "food";
 
@@ -1511,8 +1565,27 @@ function drawDepthRow() {
   const n = voxels[layer].flat().filter(Boolean).length;
   const info = document.createElement("span");
   info.className = "muted";
-  info.textContent = (layer + 1) + " / " + N + " 枚目　この層に " + n + " マス";
+  info.textContent = (layer + 1) + " / " + N + " 枚目　この層に " + n + " マス"
+      + (backView ? "　（裏から数えています）" : "");
   row.appendChild(info);
+
+  // 🔴 裏から見て描けるようにする（すけさんの要望 2026-09-03）
+  const back = document.createElement("button");
+  back.className = "small" + (backView ? " on" : "");
+  back.textContent = backView ? "裏から見ています" : "裏から見る";
+  back.title = "うしろへ回り込みます。そのまま描けば、"
+      + "左右の折り返しは道具がやります。";
+  back.onclick = () => {
+    backView = !backView;
+    flipAround();
+    // 🔴 回り込んだら、いちばん手前の層から始める。
+    //    ⚠️ 同じ層に留まると「16 / 16 枚目」から始まることになり、
+    //    <b>裏の面を描きたい人がつまみを端まで送る羽目になる</b>。
+    //    ⚠️ ここでだけ動かす――{@link asFront} は層をそのまま戻す必要がある。
+    layer = 0;
+    drawDepthRow(); drawPaint(); render();
+  };
+  row.appendChild(back);
 
   const clear = document.createElement("button");
   clear.className = "small danger"; clear.textContent = "この層を消す";
@@ -4847,7 +4920,8 @@ function render() {
     : "🔴 <b>立体は絵から自動で作られます。</b>Minecraft は 16×16 の絵を<b>1マスぶんの厚みに" +
       "押し出して</b>手に持たせるので、描いた絵がそのまま立体になります。<br>" +
       "⚠️ <b>裏は表の鏡写し</b>です。別にしたいときは上の「裏面を別の絵にする」を入れてください。";
-  document.getElementById("out").value = JSON.stringify(goods(), null, 2);
+  document.getElementById("out").value =
+      JSON.stringify(asFront(goods), null, 2);
   // 🔴 値段は中身が変わるたびに出し直す（裁定 2026-08-24）
   drawPrice();
   showOverflow();
@@ -5504,6 +5578,11 @@ function pullItem(id, base) {
 }
 
 function saveAll() {
+  // 🔴 裏から見たまま出さない。出したものが左右逆になる
+  return asFront(saveAllNow);
+}
+
+function saveAllNow() {
   // 🔴 スキンは品物ではない。絵を1枚出すだけ
   if (mode === "skin") {
     pngBlob(sheet(), b => download("skin.png", b));
@@ -5745,6 +5824,8 @@ function loadSolid(goodsFile, modelFile, picFile) {
       fillInside(v);
       voxels = v;
       layer = 0;
+      // ⚠️ 読み込んだものは表向き。裏から見たままだと鏡写しになる
+      backView = false;
       setMode("furniture");
       setSide(faces()[0][0]);
       drawPaint();
@@ -5897,6 +5978,7 @@ function newDish() {
   voxels = Array.from({length:N},
       () => Array.from({length:N}, () => Array(N).fill(null)));
   layer = 0;
+  backView = false;
   setSide(faces()[0][0]);
   document.getElementById("name").value = "あたらしい" + word();
   document.getElementById("id").value = "new_" + mode;
