@@ -469,6 +469,37 @@
     </p>
   </details>
 
+  <!-- 🔴 効果の目安（すけさんの希望 2026-09-07）。
+       ⚠️ 秒数と強さだけ見ても、強すぎるのか分からない。バニラのポーションと並べる。
+       🔴 値は 26.2 の Potions クラスから取った実測（tick ÷ 20 で秒）。 -->
+  <div class="row only-food" style="margin-top:6px">
+    <div id="effectJudge" class="chip"></div>
+  </div>
+  <details class="only-food" style="margin-top:6px">
+    <summary>効果をバニラのポーションと比べる（目安）</summary>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:6px">
+      <tr><th style="text-align:left;padding:2px 6px">ポーション</th>
+          <th style="text-align:right;padding:2px 6px">I</th>
+          <th style="text-align:right;padding:2px 6px">延長</th>
+          <th style="text-align:right;padding:2px 6px">II</th></tr>
+      <tr><td style="padding:2px 6px">火炎耐性</td><td style="text-align:right">180秒</td><td style="text-align:right">480秒</td><td style="text-align:right">🔴 無い</td></tr>
+      <tr><td style="padding:2px 6px">暗視</td><td style="text-align:right">180秒</td><td style="text-align:right">480秒</td><td style="text-align:right">🔴 無い</td></tr>
+      <tr><td style="padding:2px 6px">透明化</td><td style="text-align:right">180秒</td><td style="text-align:right">480秒</td><td style="text-align:right">🔴 無い</td></tr>
+      <tr><td style="padding:2px 6px">移動速度上昇</td><td style="text-align:right">180秒</td><td style="text-align:right">480秒</td><td style="text-align:right">90秒</td></tr>
+      <tr><td style="padding:2px 6px">攻撃力上昇</td><td style="text-align:right">180秒</td><td style="text-align:right">480秒</td><td style="text-align:right">90秒</td></tr>
+      <tr><td style="padding:2px 6px">跳躍力上昇</td><td style="text-align:right">180秒</td><td style="text-align:right">480秒</td><td style="text-align:right">90秒</td></tr>
+      <tr><td style="padding:2px 6px"><b>再生</b></td><td style="text-align:right"><b>45秒</b></td><td style="text-align:right">90秒</td><td style="text-align:right"><b>22秒</b></td></tr>
+      <tr><td style="padding:2px 6px">即時回復</td><td style="text-align:right" colspan="3">その場で 4／II で 8 回復</td></tr>
+      <tr><td style="padding:2px 6px">衝撃吸収</td><td style="text-align:right" colspan="3">金のリンゴで 120秒</td></tr>
+    </table>
+    <p class="note">
+      🔴 <b>ポーション I が 180秒、II は 90秒</b>が基準です。<b>強い効果ほど短く</b>できています。<br>
+      🔴 <b>火炎耐性・暗視・透明化には II がありません。</b>⚠️ <b>強さを上げても何も変わりません。</b><br>
+      ⚠️ <b>再生は 45秒</b>。強い効果なので、バニラでもとても短く抑えられています。<br>
+      ⚠️ <b>料理は材料さえあれば何度でも作れます。</b>ポーションより手軽なぶん、<b>短めが無難</b>です。
+    </p>
+  </details>
+
   <div class="sub buff">
     <h4 class="ok">よい効果　<span class="chip" id="buffCount"></span></h4>
     <div id="buffs"></div>
@@ -517,6 +548,53 @@
 </main>
 
 <script>
+// 🔴 効果の目安（すけさんの希望 2026-09-07）。
+//    🔴 値は 26.2 の Potions クラスから取った実測（tick ÷ 20）。
+//    ⚠️ 「II が無い効果」は、強さを上げても何も変わらない。
+const NO_LEVEL_2 = {
+  "minecraft:fire_resistance": "火炎耐性",
+  "minecraft:night_vision": "暗視",
+  "minecraft:invisibility": "透明化",
+  "minecraft:water_breathing": "水中呼吸",
+};
+const POTION_SEC = {   // ポーション I の秒数
+  "minecraft:fire_resistance": 180, "minecraft:night_vision": 180,
+  "minecraft:invisibility": 180, "minecraft:speed": 180,
+  "minecraft:strength": 180, "minecraft:jump_boost": 180,
+  "minecraft:water_breathing": 180, "minecraft:regeneration": 45,
+  "minecraft:absorption": 120,
+};
+// ⚠️ 名前は BUFFS / DEBUFFS が持っている。引けなければ ID のまま出す
+function effectName(id) {
+  for (const list of [BUFFS, DEBUFFS]) {
+    for (const pair of list) {
+      if (pair[0] === id) return pair[1];
+    }
+  }
+  return id;
+}
+function judgeEffects(list) {
+  const el = document.getElementById("effectJudge");
+  if (!el) return;
+  if (!list || !list.length) { el.textContent = ""; el.className = "chip"; return; }
+  const bad = [], warn = [];
+  for (const e of list) {
+    const ja = NO_LEVEL_2[e.id];
+    if (ja && (e.amp || 0) > 0) {
+      bad.push("🔴 " + ja + " に II はありません（強さを 0 に）");
+    }
+    const base = POTION_SEC[e.id];
+    if (base && e.sec > base) {
+      warn.push("⚠️ " + effectName(e.id) + " が " + e.sec
+                + "秒（ポーション I は " + base + "秒）");
+    }
+  }
+  if (bad.length) { el.textContent = bad.join(" ／ "); el.className = "chip bad"; return; }
+  if (warn.length) { el.textContent = warn.join(" ／ "); el.className = "chip bad"; return; }
+  el.textContent = "目安： バニラのポーションの範囲に収まっています";
+  el.className = "chip";
+}
+
 // 🔴 食べ物の強さを一言で出す（すけさんの希望 2026-09-07）。
 //    ⚠️ 数字だけでは強いか弱いか分からない。バニラのどれくらいかを言う。
 //    🔴 値は 26.2 の Foods / FoodProperties から取った実測。
@@ -4924,6 +5002,7 @@ function render() {
   // 🔴 食べ物の目安を出す（入力のたび）。
   //    ⚠️ goods() は書き出しのときしか呼ばれないので、ここで呼ぶ
   judgeFood(Number(val("nutrition")) || 0, Number(val("saturation")) || 0);
+  judgeEffects([].concat(buffs, debuffs));
   document.getElementById("solidHint").innerHTML = (mode === "furniture")
     ? "🔴 <b>積み木として作ります。</b>奥ゆきを選んで、その層にマスを置いてください。<br>" +
       "⚠️ <b>色はいつでも塗り直せます。</b>形を決めてから色、の順でなくて構いません。<br>" +
