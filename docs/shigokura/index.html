@@ -442,6 +442,33 @@
     <input type="number" id="saturation" value="6" min="0" max="20" step="0.5" oninput="render()">
   </div>
 
+  <!-- 🔴 目安を出す（すけさんの希望 2026-09-07）。
+       ⚠️ 数字だけ見ても強いのか弱いのか分からない。バニラと並べる。
+       🔴 値は Minecraft 26.2 のクラス（Foods / FoodProperties）から取った実測。
+          満腹度は倍率ではなく実数値。 -->
+  <div class="row only-food" style="margin-top:6px">
+    <div id="foodJudge" class="chip"></div>
+  </div>
+  <details class="only-food" style="margin-top:6px">
+    <summary>バニラと比べる（目安）</summary>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:6px">
+      <tr><th style="text-align:left;padding:2px 6px">　</th>
+          <th style="text-align:right;padding:2px 6px">空腹の回復</th>
+          <th style="text-align:right;padding:2px 6px">満腹度</th></tr>
+      <tr><td style="padding:2px 6px">クッキー</td><td style="text-align:right">2</td><td style="text-align:right">0.4</td></tr>
+      <tr><td style="padding:2px 6px">スイカ</td><td style="text-align:right">2</td><td style="text-align:right">1.2</td></tr>
+      <tr><td style="padding:2px 6px">パン</td><td style="text-align:right">5</td><td style="text-align:right">6.0</td></tr>
+      <tr><td style="padding:2px 6px">金のリンゴ</td><td style="text-align:right">4</td><td style="text-align:right">9.6</td></tr>
+      <tr><td style="padding:2px 6px"><b>焼き牛肉</b></td><td style="text-align:right"><b>8</b></td><td style="text-align:right"><b>12.8</b></td></tr>
+      <tr><td style="padding:2px 6px">金のニンジン</td><td style="text-align:right">6</td><td style="text-align:right">14.4</td></tr>
+    </table>
+    <p class="note">
+      🔴 <b>空腹の回復</b>は肉マークが増える数（2 で1個ぶん）。満腹ゲージは 20 まで。<br>
+      🔴 <b>満腹度</b>は「減りにくさ」。⚠️ <b>見えないゲージ</b>で、これが残っている間は肉マークが減りません。<br>
+      ⚠️ <b>焼き牛肉より上は、かなり強い部類</b>です。
+    </p>
+  </details>
+
   <div class="sub buff">
     <h4 class="ok">よい効果　<span class="chip" id="buffCount"></span></h4>
     <div id="buffs"></div>
@@ -490,6 +517,36 @@
 </main>
 
 <script>
+// 🔴 食べ物の強さを一言で出す（すけさんの希望 2026-09-07）。
+//    ⚠️ 数字だけでは強いか弱いか分からない。バニラのどれくらいかを言う。
+//    🔴 値は 26.2 の Foods / FoodProperties から取った実測。
+const FOOD_MARKS = [
+  [2, 0.4, "クッキー"], [2, 1.2, "スイカ"], [5, 6.0, "パン"],
+  [4, 9.6, "金のリンゴ"], [8, 12.8, "焼き牛肉"], [6, 14.4, "金のニンジン"],
+];
+function judgeFood(nut, sat) {
+  const el = document.getElementById("foodJudge");
+  if (!el) return;
+  if (!nut && !sat) { el.textContent = ""; el.className = "chip"; return; }
+  // ⚠️ 「回復 × 2 ＋ 満腹」でざっくり並べる。腹持ちのぶん満腹度を効かせる
+  const score = (v) => v[0] * 2 + v[1];
+  const mine = score([nut, sat]);
+  let near = FOOD_MARKS[0];
+  for (const m of FOOD_MARKS) {
+    if (Math.abs(score(m) - mine) < Math.abs(score(near) - mine)) near = m;
+  }
+  // ⚠️ 焼き牛肉より上のときは「〜くらい」を付けない。
+  //    いちばん近いものを言われても、超えている事実がぼける
+  if (mine > score([8, 12.8])) {
+    el.textContent = "目安： 🔴 焼き牛肉（8／12.8）より強い";
+    el.className = "chip bad";
+    return;
+  }
+  const word = mine < score([2, 1.2]) ? "軽い" : "ふつう";
+  el.textContent = "目安： " + word + "（" + near[2] + " くらい）";
+  el.className = "chip";
+}
+
 // ══════════════════════════════════════════════════════════════
 //  絵
 //
@@ -4864,6 +4921,9 @@ function model() {
 
 
 function render() {
+  // 🔴 食べ物の目安を出す（入力のたび）。
+  //    ⚠️ goods() は書き出しのときしか呼ばれないので、ここで呼ぶ
+  judgeFood(Number(val("nutrition")) || 0, Number(val("saturation")) || 0);
   document.getElementById("solidHint").innerHTML = (mode === "furniture")
     ? "🔴 <b>積み木として作ります。</b>奥ゆきを選んで、その層にマスを置いてください。<br>" +
       "⚠️ <b>色はいつでも塗り直せます。</b>形を決めてから色、の順でなくて構いません。<br>" +
