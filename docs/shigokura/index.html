@@ -494,7 +494,7 @@
     </table>
     <p class="note">
       🔴 <b>ポーション I が 180秒、II は 90秒</b>が基準です。<b>強い効果ほど短く</b>できています。<br>
-      🔴 <b>火炎耐性・暗視・透明化には II がありません。</b>⚠️ <b>強さを上げても何も変わりません。</b><br>
+      🔴 <b>火炎耐性・暗視・透明化には II がありません。</b>⚠️ <b>II 以上にしても何も変わりません。</b><br>
       ⚠️ <b>再生は 45秒</b>。強い効果なので、バニラでもとても短く抑えられています。<br>
       ⚠️ <b>料理は材料さえあれば何度でも作れます。</b>ポーションより手軽なぶん、<b>短めが無難</b>です。
     </p>
@@ -581,7 +581,7 @@ function judgeEffects(list) {
   for (const e of list) {
     const ja = NO_LEVEL_2[e.id];
     if (ja && (e.amp || 0) > 0) {
-      bad.push("🔴 " + ja + " に II はありません（強さを 0 に）");
+      bad.push("🔴 " + ja + " に II はありません（強さを I に）");
     }
     const base = POTION_SEC[e.id];
     if (base && e.sec > base) {
@@ -3358,9 +3358,19 @@ function drawOne(list, arr, choices) {
     sec.type = "number"; sec.value = e.sec; sec.min = 1;
     sec.oninput = () => { e.sec = Number(sec.value)||1; render(); };
 
-    const amp = document.createElement("input");
-    amp.type = "number"; amp.value = e.amp; amp.min = 0; amp.max = 4; amp.style.width="60px";
-    amp.oninput = () => { e.amp = Number(amp.value)||0; render(); };
+    // 🔴 <b>「強さ」は I〜V から選ぶ</b>（すけさんの指摘 2026-09-07）。
+    //    ⚠️ <b>前は 0〜4 の数を直に入れさせていた。</b>
+    //    <b>「I のつもりで 1」と入れると、実際には II になっていた。</b>
+    //    実際に本番の品物が1つ、そうなっていた。
+    const amp = document.createElement("select");
+    amp.style.width = "70px";
+    ["I","II","III","IV","V"].forEach((label, n) => {
+      const o = document.createElement("option");
+      o.value = String(n); o.textContent = label;
+      if (n === (e.amp || 0)) { o.selected = true; }
+      amp.appendChild(o);
+    });
+    amp.onchange = () => { e.amp = Number(amp.value) || 0; render(); };
 
     const del = document.createElement("button");
     del.className = "small danger"; del.textContent = "消す";
