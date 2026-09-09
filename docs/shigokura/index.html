@@ -341,7 +341,7 @@
     </select>
     <span class="hint" id="doseHint" style="flex:1"></span>
   </div>
-  <div class="row only-dose" style="display:none">
+  <div class="row only-medicine" style="display:none">
     <label>寝ている人だけ</label>
     <input type="checkbox" id="bedOnly" onchange="render()">
     <span class="hint">
@@ -413,6 +413,14 @@
     <label>かかる時間</label>
     <input type="number" id="seconds" value="10" min="0" max="600" oninput="render()">
     <span class="hint">秒。⚠️ <b>0 なら待ちません。</b>待つ間は工房の前を離れられません</span>
+  </div>
+  <div class="row">
+    <label>1回でできる数</label>
+    <input type="number" id="makes" value="1" min="1" max="64" oninput="render()">
+    <span class="hint">
+      🔴 <b>材料は1組しか減りません。</b>増やすとそのぶん安くなります<br>
+      ⚠️ <b>作った数は「1回」と数えます</b>――8個できても1回です
+    </span>
   </div>
   <p class="hint">
     🔴 <b>作る場所は「工房」です。</b>
@@ -1850,7 +1858,12 @@ function setSide(s) {
  * <p>⚠️ <b>武器と防具は鍛冶屋のもので、まだ開いていない。</b>
  * ⚠️ <b>中間素材は「覚えている一覧」を運営が育てるところ</b>なので、運営のまま。
  */
-const ADMIN_MODES = ["material", "weapon", "armor"];
+// 🔴 <b>薬を足した</b>（すけさんの指示 2026-09-09）。
+//    ⚠️ <b>`m-medicine` は最初から display:none で、誰も出していなかった</b>――
+//    運営モードが出すのは ADMIN_MODES、参加者向けは OPEN_MODES で、
+//    <b>医師が staffOnly なので OPEN_MODES にも入らない。</b>
+//    ⇒ <b>どこからも出ないタブになっていた。</b>
+const ADMIN_MODES = ["material", "weapon", "armor", "medicine"];
 
 /**
  * 参加者にも見せるタブ。
@@ -3123,10 +3136,15 @@ function setAdmin(on) {
   // 🔴 運営だけのタブ（武器・防具）を出し入れする。
   //    ⚠️ 洋服・旗・薬は参加者にも見えるので、ここでは触らない
   ADMIN_MODES.filter(k => k !== "material").forEach(k => {
+    // ⚠️ 職業が開いているタブは、運営モードを切っても消さない（2026-09-09）。
+    //    薬は医師が開けば参加者にも出るので、ここで消すと出たり消えたりする
+    if (!on && OPEN_MODES.includes(k)) {
+      return;
+    }
     document.getElementById("m-" + k).style.display = on ? "" : "none";
   });
   // ⚠️ 運営モードを切ったら、隠したタブから出す
-  if (!on && ADMIN_MODES.includes(mode)) {
+  if (!on && ADMIN_MODES.includes(mode) && !OPEN_MODES.includes(mode)) {
     mode = "food";      // ⚠️ setMode の見張りに引っかからないよう、先に戻す
     setMode("food");
   }
@@ -4535,6 +4553,8 @@ function goods() {
     shop: val("shop"),
     note: val("note"),
     seconds: Number(val("seconds")) || 0,
+    // 🔴 1回でできる数（2026-09-09）。⚠️ 1 なら書き出さない（今までの形のまま）
+    makes: Math.max(1, Number(val("makes")) || 1),
     ingredients: items
       .filter(i => i && i.item)
       .map(i => ({ item: i.item, count: i.count || 1 })),
@@ -4617,6 +4637,12 @@ function goods() {
       g.swing = 1.6;
       g.durability = Number(val("durability")) || 0;
       g.enchants = [];
+      // 🔴 <b>効きめと「寝ている人だけ」は注射器そのものに載る</b>（2026-09-09）。
+      //    ⚠️ <b>ここに書いていなかったので、ベッド用の注射器が作れなかった</b>――
+      //    実装（Syringe.inject）は tool.effects と tool.bedOnly を見ている。
+      g.bedOnly = on("bedOnly");
+      g.effects = [].concat(buffs, debuffs)
+        .map(e => ({ id: e.id, seconds: e.sec, amplifier: e.amp }));
     } else {
       g.bedOnly = on("bedOnly");
       g.effects = [].concat(buffs, debuffs)
@@ -5218,13 +5244,17 @@ function doseKindChanged() {
   const box = document.getElementById("doseHint");
   if (box) {
     box.innerHTML = isSyringe()
-      ? "🔴 <b>これ自体は効きません。</b>打つ道具です。"
-        + "持ち物の中の薬を1つ減らして、相手に効果を移します。<br>"
+      // 🔴 <b>実装に合わせて書き直した</b>（2026-09-09）。
+      //    ⚠️ <b>前は「持ち物の中の薬を1つ減らす」と書いてあった</b>――
+      //    <b>古い設計のままで、実際は注射器そのものに効きめが載る。</b>
+      ? "🔴 <b>これ1本で効きます。</b>下の欄で決めた効果が、打った相手に出ます。<br>"
+        + "⚠️ <b>打つと1本無くなります。</b>"
         + "⚠️ <b>やりの形になります。</b>相手を右クリックで打ちます。"
-        + "自分には打てません"
-      : "🔴 <b>打たれると効果が出ます。</b>効果は下の欄で決めてください。<br>"
-        + "⚠️ <b>医師が持ち物の左から順に探して使います。</b>"
-        + "並び替えで、どれを使うかを決められます";
+        + "自分には打てません。"
+        + "🔴 <b>医師でなければ、ただのやりとして殴るだけです。</b>"
+      : "🔴 <b>いまは使っていません。</b>"
+        + "⚠️ <b>効きめは注射器そのものに載ります</b>ので、"
+        + "上の「注射器（打つ道具）」を選んでください。";
   }
   setMode("medicine");
 }
