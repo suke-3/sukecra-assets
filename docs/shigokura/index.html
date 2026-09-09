@@ -333,10 +333,14 @@
     <label>エンチャント</label>
     <div id="enchants" style="flex:1"></div>
   </div>
+  <!-- 🔴 <b>「薬（打たれるもの）」は消した</b>（すけさんの指示 2026-09-09）。
+       ⚠️ <b>いまの実装では使われない</b>――効きめは注射器そのものに載る。
+       ⏸️ <b>飲み薬は将来べつに検討する</b>ので、選び口ごと隠して混乱を減らす。
+       ⚠️ <b>`doseKind` の欄そのものは残す</b>――
+       <b>読み込んだ古い定義が壊れないようにするため。</b> -->
   <div class="row only-medicine" style="display:none">
     <label>種類</label>
     <select id="doseKind" onchange="doseKindChanged()">
-      <option value="dose">薬（打たれるもの）</option>
       <option value="syringe">注射器（打つ道具）</option>
     </select>
     <span class="hint" id="doseHint" style="flex:1"></span>
@@ -5232,7 +5236,10 @@ function armorWearChanged() {
 
 /** いま注射器を作っているか。⚠️ 薬のタブのときだけ意味がある。 */
 function isSyringe() {
-  return mode === "medicine" && val("doseKind") === "syringe";
+  // 🔴 <b>薬は注射器だけになった</b>（2026-09-09）。
+  //    ⚠️ <b>古い「薬」の定義を読むと選び口が空になる</b>ので、
+  //    <b>空でも注射器として扱う</b>――そうしないと `syringe` が抜けた定義が書き出される。
+  return mode === "medicine" && val("doseKind") !== "dose";
 }
 
 /**
@@ -5252,9 +5259,7 @@ function doseKindChanged() {
         + "⚠️ <b>やりの形になります。</b>相手を右クリックで打ちます。"
         + "自分には打てません。"
         + "🔴 <b>医師でなければ、ただのやりとして殴るだけです。</b>"
-      : "🔴 <b>いまは使っていません。</b>"
-        + "⚠️ <b>効きめは注射器そのものに載ります</b>ので、"
-        + "上の「注射器（打つ道具）」を選んでください。";
+      : "";
   }
   setMode("medicine");
 }
@@ -6102,7 +6107,8 @@ function fromGoods(g, withSolid) {
     document.getElementById("durability").value = g.durability || 0;
     picked = (g.enchants || []).slice();
   } else if (cat === "medicine") {
-    document.getElementById("doseKind").value = g.syringe ? "syringe" : "dose";
+    // 🔴 <b>いまは注射器だけ</b>（2026-09-09）。⚠️ 古い「薬」も注射器として開く
+    document.getElementById("doseKind").value = "syringe";
     document.getElementById("bedOnly").checked = !!g.bedOnly;
     if (g.syringe) { document.getElementById("durability").value = g.durability || 0; }
     doseKindChanged();
