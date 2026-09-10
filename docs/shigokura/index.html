@@ -4437,7 +4437,14 @@ function priceNow() {
     proper = properG(power, curve);
   }
   const ratio = (judged && proper > 0) ? material / proper : 1;
-  return { lines: lines, material: material, ench: ench, total: material + ench,
+  // 🔴 <b>1個ぶんの値段にする</b>（2026-09-10）。
+  //    ⚠️ <b>材料は1組しか減らない</b>ので、4個できるなら1個は 1/4。
+  //    ⚠️ <b>サーバー側も同じ割り方をする</b>（Rates.wholesale）――
+  //    <b>ここで割らないと、書き出した値段が実際の何倍にもなる。</b>
+  const madeAtOnce = Math.max(1, Number(val("makes")) || 1);
+  const one = Math.max(1, Math.ceil((material + ench) / madeAtOnce));
+  return { lines: lines, material: material, ench: ench,
+           makes: madeAtOnce, batch: material + ench, total: one,
            chosen: chosen, weapon: weapon, power: power, judged: judged,
            proper: proper, ratio: ratio, floor: floor, caps: caps, over: over,
            noMirror: noMirror,
@@ -4472,7 +4479,12 @@ function drawPrice() {
       + "⚠️ <b>そのエンチャントが入っていれば、レベルは問いません。</b>"
       + "うちで付くのはどれもレベル1です。</p>");
   }
-  rows.push("<div class='line'><b>卸値（初期値）</b><b>" + showG(p.total) + "</b></div>");
+  if (p.makes > 1) {
+    rows.push("<div class='line'><span class='muted'>1回ぶん（" + p.makes
+      + " 個できます）</span><span class='muted'>" + showG(p.batch) + "</span></div>");
+  }
+  rows.push("<div class='line'><b>卸値（初期値・1個ぶん）</b><b>"
+    + showG(p.total) + "</b></div>");
 
   if (p.weapon) {
     // 🔴 何と比べているかを先に出す。⚠️ 上限の理由が見えないと直しようがない
