@@ -1867,6 +1867,40 @@ function setSide(s) {
 //    運営モードが出すのは ADMIN_MODES、参加者向けは OPEN_MODES で、
 //    <b>医師が staffOnly なので OPEN_MODES にも入らない。</b>
 //    ⇒ <b>どこからも出ないタブになっていた。</b>
+/**
+ * 🔴 <b>裏の絵を左右に返さない品目</b>（すけさんの指示 2026-09-15）。
+ *
+ * <p>⚠️ <b>薬と武器は「武器の枠」で、持ち方の回し方が料理と違う。</b>
+ * <b>実測</b>――<b>三人称で持ったときの回転が、料理は {@code [0,0,0]}、
+ * 薬・武器は {@code [0,-90,55]}。</b>
+ * <b>そのぶん、裏から見たときの見え方も変わる。</b>
+ *
+ * <p>🔴 <b>すけさんの実機での見え方</b>――
+ * <b>「注射器のメモリの天地が逆になっており、絵を鏡写しではなく
+ * 無理やり合わせたようになっています。」</b>
+ * ✅ <b>「eno-cookie は左右非対称ですが、現在正しい状態」</b>――
+ * <b>料理は返すのが正しい。</b>
+ *
+ * <p>⚠️ <b>配る側（{@code publish.py} の {@code NO_MIRROR}）と同じ分け方。</b>
+ * <b>片方だけ直すと、画面で見た裏とゲームで出る裏が食い違う。</b>
+ */
+const NO_MIRROR_MODES = ["medicine", "weapon"];
+
+/** 🔴 いまの品目で、裏は左右を返すか。 */
+function mirrorsBack() {
+  return !NO_MIRROR_MODES.includes(mode);
+}
+
+/**
+ * 🔴 <b>裏のマスに対応する、表のマスの x</b>。
+ *
+ * <p>⚠️ <b>返す品目なら折り返し、返さない品目ならそのまま。</b>
+ * <b>下の透かし・色数え・立体プレビューが全部ここを通る。</b>
+ */
+function frontX(x) {
+  return mirrorsBack() ? N - 1 - x : x;
+}
+
 const ADMIN_MODES = ["material", "weapon", "armor", "medicine"];
 
 /**
@@ -2064,7 +2098,11 @@ function fillBackIfEmpty() {
  * 表の形からはみ出して<b>裏の絵が出なくなる</b>。
  */
 function copyFrontToBack() {
-  sides.back = sides.front.map(r => r.slice().reverse());
+  // 🔴 返す品目だけ折り返す（すけさんの指示 2026-09-15）。
+  //    ⚠️ 薬・武器はそのまま写す。持ち方が違うため
+  sides.back = mirrorsBack()
+    ? sides.front.map(r => r.slice().reverse())
+    : sides.front.map(r => r.slice());
 }
 
 /**
@@ -2258,7 +2296,7 @@ function drawPaint() {
       if (here) { pctx.fillStyle = here; pctx.fillRect(x*C, y*C, C, C); }
       // 🔴 裏の画面には表の形を薄く出す。形は表で決まるので、
       //    その外に描いても出ない。⚠️ 見えないと「描いたのに出ない」になる
-      if (twoSided() && side === "back" && !sides.front[y][N-1-x]) {
+      if (twoSided() && side === "back" && !sides.front[y][frontX(x)]) {
         pctx.fillStyle = "rgba(200,40,40,0.22)";
         pctx.fillRect(x*C, y*C, C, C);
       }
@@ -2747,7 +2785,7 @@ function draw3D() {
       //    両方を足して形にすると、表が透けているところに裏の絵がはみ出す
       // 🔴 裏は左右を入れ替えて読む。そうしないと、裏から見たときに鏡写しになる
       //    （2026-08-21・描いた結果を読んで確かめた）
-      const cf = F[y][x], cb = B[y][N-1-x];
+      const cf = F[y][x], cb = B[y][frontX(x)];
       if (!cf) { continue; }
       const ox = x - N/2, oy = y - N/2, oz = -DEPTH/2;
       for (const f of FACES) {
@@ -3570,7 +3608,7 @@ const RATES = {
   "minecraft:book": 130,
   "minecraft:gunpowder": 80,
   "minecraft:clay_ball": 4,
-  "minecraft:ice": 10,
+  "minecraft:ice": 20,
   "minecraft:bone": 35,
   "minecraft:obsidian": 80,
   "minecraft:slime_ball": 90,
@@ -5185,7 +5223,7 @@ function showOverflow() {
   let n = 0;
   for (let y = 0; y < N; y++) {
     for (let x = 0; x < N; x++) {
-      if (sides.back[y][x] && !sides.front[y][N-1-x]) { n++; }
+      if (sides.back[y][x] && !sides.front[y][frontX(x)]) { n++; }
     }
   }
   box.textContent = n
@@ -5732,17 +5770,23 @@ function modelOf(front, back, id) {
 
 /** 弓・クロスボウの一式（絵とモデル）を出す。 */
 function savePulling(id, base) {
-  const gf = WEAPON_GUIDE[base], gb = mirrorGuide(gf);
+  const gf = WEAPON_GUIDE[base];
+  // 🔴 裏を返さない品目では、下絵も向きも返さない（WS2-QA の指摘 2026-09-15）。
+  //    ⚠️ 前は copyFrontToBack が必ず反転していたので辻褄が合っていた。
+  //    <b>武器が反転しなくなったので、弓の絵と弦・矢の位置が左右で食い違う。</b>
+  //    <b>出るのは _back・_pulling_N_back・_charged_back の裏側すべて。</b>
+  const gb = mirrorsBack() ? mirrorGuide(gf) : gf;
+  const dir = mirrorsBack() ? -1 : 1;
   // 休め――矢を消したもの
   const restF = pulled(sides.front, gf, 0, 1);
-  const restB = pulled(sides.back, gb, 0, -1);
+  const restB = pulled(sides.back, gb, 0, dir);
   pngBlob(restF, b => download(id + ".png", b));
   pngBlob(restB, b => download(id + "_back.png", b));
   download(id + ".model.json", JSON.stringify(modelOf(restF, restB, id), null, 2));
   // 引く3段階
   PULL_DEPTH.forEach((d, i) => {
     const f = pulled(sides.front, gf, d, 1);
-    const b = pulled(sides.back, gb, d, -1);
+    const b = pulled(sides.back, gb, d, dir);
     pngBlob(f, blob => download(id + "_pulling_" + i + ".png", blob));
     pngBlob(b, blob => download(id + "_pulling_" + i + "_back.png", blob));
     download(id + "_pulling_" + i + ".model.json",
@@ -5755,7 +5799,7 @@ function savePulling(id, base) {
   if (base === "crossbow") {
     const last = PULL_DEPTH[PULL_DEPTH.length - 1];
     const cf = pulled(sides.front, gf, last, 1, last - 1);
-    const cb = pulled(sides.back, gb, last, -1, last - 1);
+    const cb = pulled(sides.back, gb, last, dir, last - 1);
     pngBlob(cf, b => download(id + "_charged.png", b));
     pngBlob(cb, b => download(id + "_charged_back.png", b));
     download(id + "_charged.model.json",
