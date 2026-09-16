@@ -2322,6 +2322,7 @@ function drawPaint() {
     });
   }
   drawArmorGuide(C);
+  drawSlimGuide(C);
   drawWeaponGuide(C);
   pctx.strokeStyle = "#8884"; pctx.lineWidth = 1;
   for (let i=0;i<=gw();i++) {
@@ -5286,6 +5287,15 @@ function enchantFits(where) {
  */
 /** その部位の一言。⚠️ 脚と足が同じ画面になる理由をここで言う。 */
 function armorNote() {
+  // 🔴 <b>スリム体型の注意</b>（すけさんの指示 2026-09-16）。
+  //    ⚠️ <b>腕だけ幅が変わる</b>ので、腕のタブのときに出す。
+  if ((mode === "clothes" || mode === "skin")
+      && (side === "arm_r" || side === "arm_l")) {
+    return "🔴 <b>スリム体型（腕の細い人）は、腕が1マス細くなります。</b>"
+      + "絵は1枚で両方に使えますが、<b>赤い列は出ないかずれます</b>。<br>"
+      + "✅ <b>腕は横縞か無地にしてください。</b>"
+      + "縦の線や、端だけの模様はずれて見えます。";
+  }
   if (mode !== "armor") { return ""; }
   const key = val("armorWear") + "/" + side;
   const NOTE = {
@@ -5594,6 +5604,33 @@ function drawArmorGuide(C) {
       if (!inside(x, y)) { pctx.fillRect(x*C, y*C, C, C); }
     }
   }
+}
+
+/**
+ * スリム体型の目安を出す。
+ *
+ * 🔴 <b>スリム（Alex 型）は腕が1マス細い</b>（4 → 3）。
+ * ⚠️ <b>服の層は、その人の体つきで作られる</b>
+ * （{@code CosmeticLayer} が {@code slim} を受け取っている）ので、
+ * <b>絵は1枚で足りる</b>。⚠️ <b>ただし腕の絵はずれる。</b>
+ *
+ * <p>面の並びは 右(4) ／ 前(4) ／ 左(4) ／ 後(4)。
+ * 🔴 <b>スリムでは前が3マスになり、左と後がそのぶん左へずれる</b>――
+ * <b>各面のいちばん右の列（7・11・15）が、出ないかずれる。</b>
+ * ✅ <b>横縞と無地なら、どちらの体つきでも同じに見える。</b>
+ *
+ * <p>⚠️ <b>塗ってはいけないわけではない。</b> 翳っていても塗れる。
+ */
+function drawSlimGuide(C) {
+  if (!showGuide) { return; }
+  if (mode !== "clothes" && mode !== "skin") { return; }
+  if (side !== "arm_r" && side !== "arm_l") { return; }
+  const p = part();
+  // ⚠️ 上ぶた・下ぶたの段は触らない。幅が変わるのは横の4面だけ
+  pctx.fillStyle = "rgba(220,60,60,0.22)";
+  [p.d + p.w - 1, p.d * 2 + p.w - 1, p.d * 2 + p.w * 2 - 1].forEach((x) => {
+    pctx.fillRect(x * C, p.d * C, C, (gh() - p.d) * C);
+  });
 }
 
 function armorGrid() {
