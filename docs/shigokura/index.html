@@ -5292,9 +5292,12 @@ function armorNote() {
   if ((mode === "clothes" || mode === "skin")
       && (side === "arm_r" || side === "arm_l")) {
     return "🔴 <b>スリム体型（腕の細い人）は、腕が1マス細くなります。</b>"
-      + "絵は1枚で両方に使えますが、<b>赤い列は出ないかずれます</b>。<br>"
+      + "絵は1枚で両方に使えます。<br>"
+      + "⚠️ <b>薄い赤：位置がずれます</b>（面の切れ目が1〜2マス動きます）。"
+      + "<b>濃い赤：スリムでは出ません</b>。<br>"
+      + "✅ <b>いちばん左の「右の面」だけは、どちらの体つきでも同じ</b>です。<br>"
       + "✅ <b>腕は横縞か無地にしてください。</b>"
-      + "縦の線や、端だけの模様はずれて見えます。";
+      + "横に一様なら、ずれても同じに見えます。";
   }
   if (mode !== "armor") { return ""; }
   const key = val("armorWear") + "/" + side;
@@ -5626,11 +5629,26 @@ function drawSlimGuide(C) {
   if (mode !== "clothes" && mode !== "skin") { return; }
   if (side !== "arm_r" && side !== "arm_l") { return; }
   const p = part();
-  // ⚠️ 上ぶた・下ぶたの段は触らない。幅が変わるのは横の4面だけ
-  pctx.fillStyle = "rgba(220,60,60,0.22)";
-  [p.d + p.w - 1, p.d * 2 + p.w - 1, p.d * 2 + p.w * 2 - 1].forEach((x) => {
-    pctx.fillRect(x * C, p.d * C, C, (gh() - p.d) * C);
-  });
+  // 🔴 <b>26.2 の実物で確かめた並び</b>（`PlayerModel.createMesh` を読んだ）。
+  //    <b>スリムの腕は幅3・奥行4</b>なので、面の並びがこうなる。
+  //
+  //      ふつう  右 0-3 ／ 前 4-7 ／ 左 8-11 ／ 後 12-15
+  //      スリム  右 0-3 ／ 前 4-6 ／ 左 7-10 ／ 後 11-13
+  //
+  // ✅ <b>右は同じ</b>（奥行は変わらない）。だから右には目印を出さない。
+  // 🔴 <b>14・15 はスリムでは使われない。</b>
+  // ⚠️ <b>4〜13 は使われるが、意味がずれる</b>――
+  //    <b>前の右端が左になり、左の右端が後になる。</b>
+  //    <b>だから「横に一様」でないと合わない。</b>
+  const slimWide = p.d * 2 + (p.w - 1) * 2;   // スリムで使われる幅
+  const y0 = 0;
+  const hh = gh();
+  // ⚠️ ずれる範囲（右より後ろ全部）を薄く
+  pctx.fillStyle = "rgba(220,60,60,0.12)";
+  pctx.fillRect(p.d * C, y0, (gw() - p.d) * C, hh * C);
+  // 🔴 スリムでは出ない列を濃く
+  pctx.fillStyle = "rgba(220,60,60,0.30)";
+  pctx.fillRect(slimWide * C, y0, (gw() - slimWide) * C, hh * C);
 }
 
 function armorGrid() {
