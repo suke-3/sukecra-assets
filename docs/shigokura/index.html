@@ -4832,7 +4832,14 @@ function palette() {
   const seen = [];
   // 🔴 ベッドは両側ぶん数える（2026-08-29）。
   //    ⚠️ 片側だけで数えると、もう片側の色が絵から漏れる
-  bedBoth().forEach(vox => {
+  // 🔴 数える順は、いつも「頭側 → 足側」（2026-09-17 に本番で踏んだ）。
+  //    ⚠️ bedBoth() は「いま開いている側」が先。書き出しは足側・頭側と
+  //    開き直して模型を作り、絵は最後に開いていた側の順で出すので、
+  //    片側の模型が別の色を指していた（ホットドッグベッドの足側）
+  const parts = !bedOn ? [voxels]
+      : bedPart === "head" ? [voxels, bedOther || blankVoxels()]
+      : [bedOther || blankVoxels(), voxels];
+  parts.forEach(vox => {
     for (let z = 0; z < N; z++) {
       for (let y = 0; y < N; y++) {
         for (let x = 0; x < N; x++) {
