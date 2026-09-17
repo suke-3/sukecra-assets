@@ -1883,8 +1883,12 @@ function setSide(s) {
  *
  * <p>⚠️ <b>配る側（{@code publish.py} の {@code NO_MIRROR}）と同じ分け方。</b>
  * <b>片方だけ直すと、画面で見た裏とゲームで出る裏が食い違う。</b>
+ *
+ * <p>🔴 <b>2026-09-17 に取り消した（空にした）</b>――すけさんの判断「A：左右を返した絵にする」。
+ * ⚠️ <b>この分け方は誤りだった。</b> 模型の裏の面は品目によらず左右逆に貼られるので、
+ * <b>形と色が合うのは左右を返した絵だけ</b>。持ち方の回転では変わらない。
  */
-const NO_MIRROR_MODES = ["medicine", "weapon"];
+const NO_MIRROR_MODES = [];
 
 /** 🔴 いまの品目で、裏は左右を返すか。 */
 function mirrorsBack() {
@@ -2098,8 +2102,8 @@ function fillBackIfEmpty() {
  * 表の形からはみ出して<b>裏の絵が出なくなる</b>。
  */
 function copyFrontToBack() {
-  // 🔴 返す品目だけ折り返す（すけさんの指示 2026-09-15）。
-  //    ⚠️ 薬・武器はそのまま写す。持ち方が違うため
+  // 🔴 どの品目も折り返す（すけさんの判断 2026-09-17「A：左右を返した絵にする」）。
+  //    ⚠️ 2026-09-15 の「薬・武器はそのまま写す」は誤りだったので取り消した（NO_MIRROR_MODES は空）
   sides.back = mirrorsBack()
     ? sides.front.map(r => r.slice().reverse())
     : sides.front.map(r => r.slice());
