@@ -5065,7 +5065,11 @@ function extrude(mask) {
       const faces = {
         south: { uv:[x, y, x2, y + 1], texture:"#front" },
         // ⚠️ 裏は左右を入れ替える。エディタの見え方と揃えてある
-        north: { uv:[16 - x, y, 16 - x2, y + 1], texture:"#back" }
+        // 🔴 北の面は、東の端（x2）に左の数、西の端（x）に右の数が付く
+        //    （26.2 の FaceInfo の NORTH の頂点の並びと CuboidFace$UVs.getVertexU で確認・2026-09-17）。
+        //    ⚠️ 前は [16 - x, …, 16 - x2] で逆だった。幅1マスの部品では同じ1マスを指すので崩れず、
+        //    2マス以上の部品だけ別の列の色が出て、注射器の裏が5回崩れた
+        north: { uv:[16 - x2, y, 16 - x, y + 1], texture:"#back" }
       };
       // 縁になっているところだけ厚みの面を出す。中どうしの面は出さない
       if (!up) { faces.up   = { uv:[x, y, x2, y + 1], texture:"#front" }; }
