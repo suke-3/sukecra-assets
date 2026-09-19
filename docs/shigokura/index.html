@@ -82,10 +82,8 @@
   <button id="m-block" onclick="setMode('block')">🧱 建材</button>
   <button id="m-furniture" onclick="setMode('furniture')">🪑 家具</button>
   <button id="m-weapon" onclick="setMode('weapon')" style="display:none">⚔️ 武器</button>
-  <button id="m-armor" onclick="setMode('armor')" style="display:none">🛡️ 防具</button>
-  <button id="m-clothes" onclick="setMode('clothes')" style="display:none">👕 洋服</button>
+  <button id="m-wear" onclick="openWear()" style="display:none">👕 着るもの</button>
   <button id="m-hata" onclick="setMode('hata')" style="display:none">🚩 旗</button>
-  <button id="m-skin" onclick="setMode('skin')" style="display:none">🧍 スキン</button>
   <button id="m-medicine" onclick="setMode('medicine')" style="display:none">💉 薬</button>
   <button id="m-material" onclick="setMode('material')" style="display:none">🧂 中間素材</button>
   <button id="newBtn" onclick="newDish()">新しい料理</button>
@@ -128,6 +126,16 @@
   <div class="card">
     <h3 id="artTitle">絵（16×16）</h3>
 
+    <!-- 🔴 スキン・洋服・防具は1つの画面（すけさんの判断 2026-09-19）。
+         ⚠️ ボタンの出し入れは今までどおり m-skin・m-clothes・m-armor が持つ
+         （運営だけ・職業が開いたら出す・止めておく、はそれぞれ別に決まる） -->
+    <div class="side" id="wearRow" style="display:none">
+      <span class="hint">何を作るか</span>
+      <button id="m-skin" onclick="setMode('skin')" style="display:none">🧍 スキン</button>
+      <button id="m-clothes" onclick="setMode('clothes')" style="display:none">👕 洋服</button>
+      <button id="m-armor" onclick="setMode('armor')" style="display:none">🛡️ 防具</button>
+    </div>
+    <p class="hint" id="layerNote" style="display:none"></p>
     <div class="side" id="sideRow"></div>
     <p class="hint" id="armorNote" style="display:none"></p>
     <div class="side only-furniture" id="depthRow" style="display:none"></div>
@@ -233,9 +241,9 @@
     <label>全員に配る</label>
     <input type="checkbox" id="everyone" onchange="render()">
     <span class="hint">
-      🔴 <b>運営が全員に配るレシピにします。</b>
-      その職業の人なら<b>誰でも作れて、作る人の枠を使いません</b>。
-      ⚠️ 職業は見ます――料理人でなければ料理は作れません
+      🔴 <b>全員に配ると、ほかの人も作れるので専売はできません。</b>
+      その職業の人なら誰でも作れます（職業は見ます――料理人でなければ料理は作れません）。
+      ⚠️ 作る人の枠は使います（運営が配るものだけは使いません）
     </span>
   </div>
   <div class="row">
@@ -1015,8 +1023,37 @@ const SKIN_PART = {
   leg_l: { name:"左脚", w:4, h:12, d:4, inn:[16,48], out:[0,48] }
 };
 
-/** いま外側（上着・帽子のほう）を塗っているか。 */
+/** いま外側（上着・帽子のほう）を塗っているか。⚠️ {@link wearLayer} から決まる */
 let outerLayer = false;
+
+/**
+ * いま塗っている層（1〜3）。
+ *
+ * <p>🔴 <b>スキン・洋服・防具を層でそろえる</b>（すけさんの判断 2026-09-19）。
+ * <ul>
+ * <li>スキン … 一層目（64×64 の内側）・二層目（外側）</li>
+ * <li>洋服 … 一層目（内側）・二層目（外側）・三層目（もう1枚の絵 {@code <ID>_layer3.png} の内側）</li>
+ * <li>防具 … 三層目だけ（64×32）</li>
+ * </ul>
+ * ⚠️ <b>絵のファイルの形は変えない。</b> 洋服の三層目だけ1枚増える。
+ * ⚠️ <b>洋服の三層目がゲームに映るのは、次のクライアントの配り直しから</b>。
+ */
+let wearLayer = 1;
+
+/** その作りかたで塗れる層。 */
+function wearLayers() {
+  return (mode === "skin") ? [1, 2] : (mode === "clothes") ? [1, 2, 3]
+      : (mode === "armor") ? [3] : [];
+}
+
+/** 層を選ぶ。⚠️ 外側かどうかと、塗る入れものが決まる */
+function setWearLayer(n) {
+  const can = wearLayers();
+  wearLayer = can.includes(n) ? n : (can[0] || 1);
+  outerLayer = (wearLayer === 2);
+}
+
+const LAYER_NAME = { 1: "一層目（体の上）", 2: "二層目（上着）", 3: "三層目（防具の外）" };
 
 /** いま塗っている部位。⚠️ 洋服とスキンのときだけ使う。 */
 function part() { return SKIN_PART[side] || SKIN_PART.body; }
@@ -1271,6 +1308,7 @@ const blank = () => Array.from({length:sheetH()}, () => Array(sheetW()).fill(nul
  * <b>洋服の絵が消えない</b>ようにするため。
  */
 function sheetKey() {
+  if (mode === "clothes" && wearLayer === 3) { return "clothes3"; }
   return (mode === "skin") ? "skinFull" : (mode === "armor") ? "armor" : "skin";
 }
 
@@ -1782,17 +1820,29 @@ function drawSideRow() {
     b.onclick = () => setSide(key);
     row.appendChild(b);
   });
-  // 🔴 内側と外側の切り替え。⚠️ 部位のタブとは別の軸なので、まとめて出さない
-  // ⚠️ 防具に外側は無い。64×32 に外側の場所が入っていない
-  if (isSkin() && mode !== "armor") {
-    const t = document.createElement("button");
-    t.className = "small" + (outerLayer ? " on" : "");
-    t.textContent = outerLayer ? "外側（上着）" : "内側（下着）";
-    t.onclick = () => {
-      outerLayer = !outerLayer;
-      drawSideRow(); drawPaint(); render();
-    };
-    row.appendChild(t);
+  // 🔴 層のボタン。⚠️ 部位のタブとは別の軸なので、まとめて出さない
+  //    （前の「内側／外側」の切り替えを、一層目〜三層目に置き換えた・2026-09-19）
+  if (isSkin()) {
+    wearLayers().forEach(n => {
+      const t = document.createElement("button");
+      t.className = "small" + (wearLayer === n ? " on" : "");
+      t.textContent = LAYER_NAME[n];
+      t.onclick = () => {
+        setWearLayer(n);
+        ensureWearSheets();
+        drawSideRow(); drawPaint(); render();
+      };
+      row.appendChild(t);
+    });
+  }
+  const ln = document.getElementById("layerNote");
+  if (ln) {
+    const msg = (mode === "clothes" && wearLayer === 3)
+        ? "⚠️ 三層目は別の絵（" + (val("id") || "ID") + "_layer3.png）になります。"
+          + "ゲームに映るのは、次のクライアントの更新からです。"
+        : "";
+    ln.textContent = msg;
+    ln.style.display = msg ? "" : "none";
   }
   // ⚠️ 旗と洋服は1枚しかない。6面へ写す意味がない
   if (!twoSided() && mode !== "hata" && !isSkin()) {
@@ -1908,7 +1958,10 @@ function frontX(x) {
 // 🔴 <b>スキンは運営だけにする</b>（すけさんの指示 2026-09-19
 //    「一旦スキンエディタの不具合を解消するまで運営専用にして非公開にしてください」）。
 //    ⚠️ 書き出しが左上 16×16 で切れていた（2026-08-23 から）。直したら参加者に戻すかを諮る
-const ADMIN_MODES = ["material", "weapon", "armor", "medicine", "skin"];
+// 🔴 <b>洋服と旗も、職業が開くまでは運営だけ</b>（2026-09-19・まとめた画面を試して見つけた）。
+//    ⚠️ <b>前は入っていなかったので、運営にもタブが出ず、参加者は洋服の定義を
+//    読み込むと洋服のタブへ入れてしまった</b>（見張りが ADMIN_MODES しか見ていない）
+const ADMIN_MODES = ["material", "weapon", "armor", "medicine", "skin", "clothes", "hata"];
 
 /**
  * 参加者にも見せるタブ。
@@ -1933,6 +1986,46 @@ function showOpenModes() {
     const b = document.getElementById("m-" + k);
     if (b) { b.style.display = ""; }
   });
+  refreshWear();
+}
+
+/** 洋服の三層目の入れものを用意する。⚠️ 無いと三層目を塗れない */
+function ensureWearSheets() {
+  const key = sheetKey();
+  if (!sides[key] || sides[key].length !== SKIN) { sides[key] = blank(); }
+  // 🔴 洋服は一・二層目（skin）と三層目（clothes3）の両方を必ず用意する（WS2-QA の指摘 2026-09-19）。
+  //    ⚠️ 三層目を選んだまま「新しく作る」と skin が作られず、保存で止まっていた
+  if (mode === "clothes") {
+    ["skin", "clothes3"].forEach(k => {
+      if (!sides[k] || sides[k].length !== SKIN) { sides[k] = blank(); }
+    });
+  }
+}
+
+/** 最後に開いた「着るもの」。 */
+let lastWear = "clothes";
+
+/** スキン・洋服・防具のうち、いま出してよいもの。⚠️ 出し入れは各ボタンの表示が正 */
+function wearChoices() {
+  return ["skin", "clothes", "armor"].filter(
+      k => document.getElementById("m-" + k).style.display !== "none");
+}
+
+/** 「着るもの」を開く。⚠️ 出してよいものが無ければ何もしない */
+function openWear() {
+  const can = wearChoices();
+  if (!can.length) { return; }
+  setMode(can.includes(lastWear) ? lastWear : can[0]);
+}
+
+/** 「着るもの」のボタンと「何を作るか」の段を、いまの状態に合わせる。 */
+function refreshWear() {
+  const can = wearChoices();
+  const btn = document.getElementById("m-wear");
+  btn.style.display = can.length ? "" : "none";
+  btn.classList.toggle("on", isSkin());
+  document.getElementById("wearRow").style.display = isSkin() ? "" : "none";
+  if (isSkin()) { lastWear = mode; }
 }
 
 function setMode(m) {
@@ -1966,10 +2059,9 @@ function setMode(m) {
   if (!faces().some(([k]) => k === side)) { side = faces()[0][0]; }
   if (isSkin()) {
     // 🔴 部位のタブは1枚の 64×64 を分けて見ているだけ。入れものは1つ
-    const key = sheetKey();
-    if (!sides[key] || sides[key].length !== SKIN) { sides[key] = blank(); }
-    // 🔴 防具に外側は無い。切り替えたまま来ると、消えた絵を塗ることになる
-    if (m === "armor") { outerLayer = false; }
+    // 🔴 層は作りかたごとに塗れるものが違う。⚠️ 先にそろえてから入れものを決める
+    setWearLayer(wearLayer);
+    ensureWearSheets();
   } else {
     faces().forEach(([k]) => {
       // ⚠️ 広さが食い違っていたら作り直す。旗は 20×40、ほかは 16×16
@@ -2018,10 +2110,13 @@ function setMode(m) {
         || (m === "medicine" && isSyringe())) ? "" : "none");
   document.querySelectorAll(".only-enchant").forEach(
     e => e.style.display = (m === "weapon" || m === "armor") ? "" : "none");
-  // 🔴 <b>「全員に配る」は運営だけ</b>（人間の指示 2026-08-30）。
-  //    ⚠️ <b>参加者に出すと、自分の枠を使わずにいくらでも登録できてしまう。</b>
-  //    ⚠️ <b>薬と中間素材はもとから全員ぶん</b>なので、欄そのものを出さない。
-  const canGive = adminOn && m !== "medicine" && m !== "material";
+  // 🔴 <b>「全員に配る」は参加者にも出す</b>（すけさんの判断 2026-09-19
+  //    「薬レシピは全員にくばるか選択できるようにしてください。他のレシピも選択できるスイッチが有ると良い」）。
+  //    ⚠️ <b>前は運営だけ</b>（2026-08-30）――全員に配るものは枠に数えなかったので、
+  //    参加者に出すといくらでも登録できた。<b>サーバー側で、参加者の品物は全員に配っても
+  //    枠に数えるように直した</b>（運営の品物は今までどおり数えない）。
+  //    ⚠️ 中間素材はもとから全員ぶん。スキンは品物ではない
+  const canGive = m !== "material" && m !== "skin";
   document.getElementById("rowEveryone").style.display = canGive ? "" : "none";
   if (!canGive) { document.getElementById("everyone").checked = false; }
   // 🔴 明るさは建材・家具・洋服で使う
@@ -2079,6 +2174,7 @@ function setMode(m) {
     yaw = -0.7; pitch = 0.12;
   }
   setSide(side);
+  refreshWear();
   render();
 }
 
@@ -3204,6 +3300,7 @@ function setAdmin(on) {
   // 🔴 「全員に配る」の欄は運営モードで出し入れする。setMode に持たせてある
   setMode(mode);
   drawMaterials();
+  refreshWear();
   drawEffects(); render();
 }
 
@@ -3492,8 +3589,11 @@ const chr10 = () => String.fromCharCode(10);
  */
 function hasSeeThrough() {
   if (isSkin()) {
-    const g = sheet();
-    return g.some(row => row.some(c => seeThroughColor(c)));
+    // 🔴 洋服は一〜三層目のどこかに半透明があれば透かす（WS2-QA の指摘 2026-09-19）。
+    //    ⚠️ sheet() だと、選んでいる層の入れものしか見ていなかった。
+    //    透かすかは品物1つに1つなので、どの層の半透明も数える
+    const gs = (mode === "clothes") ? [sides.skin, sides.clothes3] : [sheet()];
+    return gs.some(g => g && g.some(row => row.some(c => seeThroughColor(c))));
   }
   if (mode === "furniture") {
     for (let z = 0; z < N; z++) {
@@ -4722,8 +4822,8 @@ function goods() {
     g.enchants = picked.slice();
     return g;
   } else if (mode === "medicine") {
-    // 🔴 レシピは運営が作る（裁定 2026-08-23）。誰でも作れるが職業は見る
-    g.open = true;
+    // 🔴 全員に配るかは選べる（すけさんの判断 2026-09-19）。⚠️ 前は必ず全員に配っていた
+    g.open = on("everyone");
     if (isSyringe()) {
       // 🔴 注射器は道具。⚠️ 組み立て方だけ武器と同じで、鍛冶屋の枠は使わない
       g.syringe = true;
@@ -5678,7 +5778,9 @@ function armorGrid() {
 }
 
 function iconGrid() {
-  const g = sheet();
+  // 🔴 洋服の持ち物の絵は一・二層目から切る（WS2-QA の指摘 2026-09-19）。
+  //    ⚠️ sheet() だと、三層目を選んだまま保存したとき三層目から切られていた
+  const g = (mode === "clothes") ? sides.skin : sheet();
   // 着るところ → 前から見て代表になるところ [内側, 外側]
   const CUT = {
     head:  [[8, 8, 8, 8], [40, 8, 8, 8]],
@@ -6011,8 +6113,13 @@ function saveAllNow() {
     // 🔴 旗の絵は 64×64。前と後ろの2か所へ同じ絵を置く（後ろは鏡写し）
     hataBlob(b => download(id + ".png", b));
   } else if (mode === "clothes") {
-    // 🔴 着たときの絵（スキンと同じ 64×64）
-    pngBlob(sheet(), b => download(id + ".png", b));
+    // 🔴 着たときの絵（スキンと同じ 64×64）。⚠️ 一層目と二層目が入る。
+    //    ⚠️ 三層目を塗っているときでも、sheet() ではなく一・二層目の入れものを出す
+    pngBlob(sides.skin, b => download(id + ".png", b));
+    // 🔴 三層目（2026-09-19）。⚠️ 塗っていなければ出さない
+    if (sides.clothes3 && sides.clothes3.some(r => r.some(c => c))) {
+      pngBlob(sides.clothes3, b => download(id + "_layer3.png", b));
+    }
     // 🔴 持ち物の中で見える小さい絵。⚠️ 服の絵から切り出して作る
     pngBlob(iconGrid(), b => download(id + "_icon.png", b));
   } else if (mode === "armor") {
@@ -6086,9 +6193,17 @@ function loadOne(f) {
       const c = document.createElement("canvas");
       c.width = w; c.height = h;
       const x = c.getContext("2d");
-      x.drawImage(img, 0, 0, w, h);
+      // 🔴 着るもの（64×64）は引き伸ばさない（WS2-QA の指摘・すけさんの判断 2026-09-19）。
+      //    ⚠️ 前は 64×32 の防具の絵を 64×64 に伸ばして読み、縦が2倍に崩れていた
+      if (isSkin()) { x.drawImage(img, 0, 0); } else { x.drawImage(img, 0, 0, w, h); }
       const d = x.getImageData(0, 0, w, h).data;
       snapshot();
+      // 🔴 洋服の三層目は、ファイルの名前で入れものを選ぶ
+      if (mode === "clothes") {
+        setWearLayer(/_layer3\.png$/.test(f.name) ? 3 : wearLayer === 3 ? 1 : wearLayer);
+        ensureWearSheets();
+        drawSideRow();
+      }
       const g = grid();
       for (let y = 0; y < h; y++) {
         for (let px = 0; px < w; px++) {
@@ -6243,6 +6358,8 @@ function fillInside(v) {
 
 /** 書き出した品物の定義を読み戻す。 */
 function fromGoods(g, withSolid) {
+  // ⚠️ 別の洋服の三層目が残っていると、読んだ品物の絵として書き出してしまう
+  delete sides.clothes3;
   document.getElementById("id").value = g.id || "";
   document.getElementById("name").value = g.name || "";
   document.getElementById("shop").value = g.shop || "";
@@ -6325,7 +6442,8 @@ function newDish() {
   Object.keys(sides).forEach(k => { delete sides[k]; });
   if (isSkin()) {
     // 🔴 洋服とスキンは1枚を分けて見ているだけ。部位ごとに作らない
-    sides[sheetKey()] = blank();
+    //    ⚠️ 洋服の三層目は別の入れもの。ensureWearSheets が空で作り直す
+    ensureWearSheets();
   } else {
     faces().forEach(([k]) => { sides[k] = blank(); });
   }
@@ -6344,6 +6462,9 @@ function newDish() {
 }
 
 showOpenModes();
+// ⚠️ 開いたときから「全員に配る」などの欄を今の作りかたに合わせる。
+//    しないと、タブを切り替えるまで欄が出ない
+setMode(mode);
 drawSideRow();
 drawViewFaces();
 drawRecent();
