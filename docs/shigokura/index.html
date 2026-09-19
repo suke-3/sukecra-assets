@@ -85,7 +85,7 @@
   <button id="m-armor" onclick="setMode('armor')" style="display:none">🛡️ 防具</button>
   <button id="m-clothes" onclick="setMode('clothes')" style="display:none">👕 洋服</button>
   <button id="m-hata" onclick="setMode('hata')" style="display:none">🚩 旗</button>
-  <button id="m-skin" onclick="setMode('skin')">🧍 スキン</button>
+  <button id="m-skin" onclick="setMode('skin')" style="display:none">🧍 スキン</button>
   <button id="m-medicine" onclick="setMode('medicine')" style="display:none">💉 薬</button>
   <button id="m-material" onclick="setMode('material')" style="display:none">🧂 中間素材</button>
   <button id="newBtn" onclick="newDish()">新しい料理</button>
@@ -1905,7 +1905,10 @@ function frontX(x) {
   return mirrorsBack() ? N - 1 - x : x;
 }
 
-const ADMIN_MODES = ["material", "weapon", "armor", "medicine"];
+// 🔴 <b>スキンは運営だけにする</b>（すけさんの指示 2026-09-19
+//    「一旦スキンエディタの不具合を解消するまで運営専用にして非公開にしてください」）。
+//    ⚠️ 書き出しが左上 16×16 で切れていた（2026-08-23 から）。直したら参加者に戻すかを諮る
+const ADMIN_MODES = ["material", "weapon", "armor", "medicine", "skin"];
 
 /**
  * 参加者にも見せるタブ。
@@ -1937,7 +1940,10 @@ function setMode(m) {
   //    ⚠️ <b>タブの見た目を隠すだけでは足りなかった</b>――
   //    洋服の定義を「読み込む」と、そのタブへ切り替わっていた。
   //    ⚠️ <b>ここで止めれば、どの入口から来ても漏れない。</b>
-  if (!adminOn && ADMIN_MODES.includes(m)) {
+  // 🔴 <b>職業が開いているタブは通す</b>（2026-09-19・医師を開けて薬のタブを出すときに見つけた）。
+  //    ⚠️ <b>薬は ADMIN_MODES にも入っているので、OPEN_MODES に入ってタブが見えても、
+  //    押すと「これは運営が作るものです」で料理へ戻されていた。</b>
+  if (!adminOn && ADMIN_MODES.includes(m) && !OPEN_MODES.includes(m)) {
     alert("これは運営が作るものです。" + chr10() +
           "上の「運営モード」を入れてから開いてください。");
     m = "food";
@@ -5726,11 +5732,15 @@ function hataBlob(cb) {
 }
 
 function pngBlob(g, cb) {
+  // 🔴 <b>大きさは渡された絵から取る</b>（すけさんの指摘 2026-09-19「スキンが頭だけになる」）。
+  //    ⚠️ <b>前は 16×16（N）の決め打ちで、64×64 のスキン・洋服と 64×32 の防具が
+  //    左上の 16×16 だけで切れていた</b>（2026-08-23 にスキンの書き出しを足したときから）。
+  const h = g.length, w = h ? g[0].length : 0;
   const c = document.createElement("canvas");
-  c.width = N; c.height = N;
+  c.width = w; c.height = h;
   const x = c.getContext("2d");
-  for (let y=0;y<N;y++) {
-    for (let px=0;px<N;px++) { if (g[y][px]) { x.fillStyle = g[y][px]; x.fillRect(px,y,1,1); } }
+  for (let y=0;y<h;y++) {
+    for (let px=0;px<w;px++) { if (g[y][px]) { x.fillStyle = g[y][px]; x.fillRect(px,y,1,1); } }
   }
   c.toBlob(cb, "image/png");
 }
