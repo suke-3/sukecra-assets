@@ -235,7 +235,7 @@
   <div class="row">
     <label>作る人</label>
     <input type="text" id="owner" placeholder="Minecraft のアカウント名" oninput="render()">
-    <span class="hint">🔴 <b>この人だけが作れます。</b>Discord の名前ではありません</span>
+    <span class="hint" id="ownerHint">🔴 <b>この人だけが作れます。</b>Discord の名前ではありません</span>
   </div>
   <div class="row" id="rowEveryone" style="display:none">
     <label>全員に配る</label>
@@ -2028,6 +2028,24 @@ function refreshWear() {
   if (isSkin()) { lastWear = mode; }
 }
 
+/**
+ * 「作る人」の説明を、いまの状態に合わせる。
+ *
+ * 🔴 <b>全員に配るなら「この人だけが作れます」は嘘になる</b>
+ * （すけさんの報告 2026-09-21「この人しか作れないという説明がズレています」）。
+ * ⚠️ <b>描き直しのたびに呼ぶ</b>――スイッチを押した直後にも切り替えるため。
+ */
+function refreshOwnerHint() {
+  const hint = document.getElementById("ownerHint");
+  if (!hint) { return; }
+  const box = document.getElementById("rowEveryone");
+  const shown = box && box.style.display !== "none";
+  hint.innerHTML = (shown && on("everyone"))
+    ? "⚠️ <b>その職業の人なら誰でも作れます。</b>ここは「誰が出した品物か」の記録です。"
+      + "空のままでもかまいません"
+    : "🔴 <b>この人だけが作れます。</b>Discord の名前ではありません";
+}
+
 function setMode(m) {
   // 🔴 <b>運営でないなら、運営だけのタブへは行かせない</b>（人間の指摘 2026-08-27）。
   //    ⚠️ <b>タブの見た目を隠すだけでは足りなかった</b>――
@@ -2072,12 +2090,14 @@ function setMode(m) {
   }
 
   // 料理だけの欄・建材だけの欄を出し分ける
-  // 🔴 効果の欄は料理と薬で使う。⚠️ 注射器には要らない
+  // 🔴 効果の欄は料理と薬で使う。🔴 <b>注射器にも要る</b>
+  //    （すけさんの報告 2026-09-21「エディタ上に効果の項目がありません」）。
+  //    ⚠️ <b>2026-09-09 に注射器そのものへ効きめを載せる形にしたのに、欄を隠したままだった。</b>
+  //    <b>書き出しは buffs/debuffs をそのまま書く</b>ので、既定の再生10秒が黙って入っていた
   document.querySelectorAll(".only-food").forEach(
     e => e.style.display = (m === "food") ? "" : "none");
   document.querySelectorAll(".card.only-food").forEach(
-    e => e.style.display = (m === "food" || (m === "medicine" && !isSyringe()))
-        ? "" : "none");
+    e => e.style.display = (m === "food" || m === "medicine") ? "" : "none");
   document.querySelectorAll(".only-material").forEach(
     e => e.style.display = (m === "material") ? "" : "none");
   document.querySelectorAll(".only-block").forEach(
@@ -2118,6 +2138,7 @@ function setMode(m) {
   const canGive = m !== "material" && m !== "skin";
   document.getElementById("rowEveryone").style.display = canGive ? "" : "none";
   if (!canGive) { document.getElementById("everyone").checked = false; }
+  refreshOwnerHint();
   // 🔴 明るさは建材・家具・洋服で使う
   document.querySelectorAll(".only-glow").forEach(
     e => e.style.display = (solid || m === "clothes") ? "" : "none");
@@ -5244,6 +5265,8 @@ function model() {
 
 
 function render() {
+  // 🔴 スイッチを押した直後にも、作る人の説明を切り替える（2026-09-21）
+  refreshOwnerHint();
   // 🔴 食べ物の目安を出す（入力のたび）。
   //    ⚠️ goods() は書き出しのときしか呼ばれないので、ここで呼ぶ
   judgeFood(Number(val("nutrition")) || 0, Number(val("saturation")) || 0);
@@ -5951,6 +5974,10 @@ function modelOf(front, back, id) {
 
 /** 弓・クロスボウの一式（絵とモデル）を出す。 */
 function savePulling(id, base) {
+  // 🔴 弓とクロスボウも、裏を描いていなければ表の映しにしてから出す
+  //    （WS2-QA の指摘 2026-09-21）。⚠️ ここは書き出しの別の入口なので、
+  //    ふつうの書き出しに足しただけでは通らず、_back・_pulling_N_back・_charged_back が空のまま出る
+  fillBackIfEmpty();
   const gf = WEAPON_GUIDE[base];
   // 🔴 裏を返さない品目では、下絵も向きも返さない（WS2-QA の指摘 2026-09-15）。
   //    ⚠️ 前は copyFrontToBack が必ず反転していたので辻褄が合っていた。
@@ -6059,7 +6086,10 @@ function saveAllNow() {
   //    見るものは publish.py と同じ。
   const lacks = [];
   if (!val("name").trim()) { lacks.push("名前"); }
-  if (!val("owner").trim()) { lacks.push("持ち主"); }
+  // 🔴 <b>全員に配るものは「作る人」が空でもよい</b>
+  //    （すけさんの報告 2026-09-21「全員配るを押しても、作る人が必須項目になっており出力できない」）。
+  //    ⚠️ <b>全員に配ると、その職業の人なら誰でも作れる</b>ので、専売の持ち主が要らない
+  if (!val("owner").trim() && !on("everyone")) { lacks.push("持ち主"); }
   if (mode !== "hata" && !items.filter(i => i && i.item).length) {
     lacks.push("材料（「材料を足す」を押して、1つ以上）");
   }
@@ -6135,6 +6165,11 @@ function saveAllNow() {
       pngBlob(sides[k], b => download(id + "_" + k + ".png", b));
     });
   } else {
+    // 🔴 裏に一度も描いていなければ、表の映しにしてから出す
+    //    （すけさんの報告 2026-09-21「表のみ、裏は映しの予定なのですが、デザインが反映されませんでした」）。
+    //    ⚠️ 裏を用意するのは画面を開いたときだけだったので、
+    //    そのあと表を描いた人は、まっさらな裏を書き出していた
+    fillBackIfEmpty();
     pngBlob(sides.front, b => download(id + ".png", b));
     pngBlob(sides.back, b => download(id + "_back.png", b));
   }
