@@ -5309,7 +5309,13 @@ function displayOf() {
     firstperson_righthand: { rotation:[0,-90,25], translation:[1.13,3.2,1.13], scale:[0.68,0.68,0.68] },
     fixed: { rotation:[0,180,0], scale:[1,1,1] }
   };
-  if (mode !== "weapon") { return food; }
+  // 🔴 <b>注射器も武器と同じ持ち方にする</b>（すけさんの実機指摘 2026-09-21
+  //    「エナジー注射について、持ち方が他の注射と異なりました」）。
+  //    ⚠️ <b>注射器は品目が「薬」なので、ここで料理の持ち方に落ちていた。</b>
+  //    <b>本番の回復注射は、武器のタブで作った時代のものなので正しく持てていた。</b>
+  //    ⚠️ <b>組み立て方は武器と同じ（base は やり）</b>なので、持ち方もそちらに合わせる
+  const handheld = mode === "weapon" || (mode === "medicine" && isSyringe());
+  if (!handheld) { return food; }
   // ⚠️ 置いたときと頭に載せたときは、型で変わらない
   return Object.assign(
       { ground: food.ground, head: food.head, fixed: food.fixed },
