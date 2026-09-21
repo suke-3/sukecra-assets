@@ -3310,7 +3310,11 @@ const BUFFS = [
   ["minecraft:night_vision","暗視"],["minecraft:water_breathing","水中呼吸"],
   ["minecraft:invisibility","透明化"],["minecraft:slow_falling","落下速度低下"],
   ["minecraft:luck","幸運"],["minecraft:saturation","満腹"],
-  ["minecraft:conduit_power","コンジットパワー"],["minecraft:dolphins_grace","イルカの好意"]
+  ["minecraft:conduit_power","コンジットパワー"],["minecraft:dolphins_grace","イルカの好意"],
+  // 🔴 発光は「よい効果」側（すけさんの判断 2026-09-21「A」）。
+  //    ⚠️ ゲームの中では中立（26.2 の MobEffects で NEUTRAL）。前は「わるい効果」の一覧に入れていたが、
+  //    作る時間の決まり（よい効果だけで伸びる）に当たって、ベリーの時間が変わってしまうため移した
+  ["minecraft:glowing","発光"]
 ];
 const DEBUFFS = [
   ["minecraft:nausea","吐き気"],["minecraft:slowness","移動速度低下"],
@@ -3318,7 +3322,7 @@ const DEBUFFS = [
   ["minecraft:blindness","盲目"],["minecraft:darkness","暗闇"],
   ["minecraft:hunger","空腹"],["minecraft:poison","毒"],
   ["minecraft:levitation","浮遊"],["minecraft:unluck","不運"],
-  ["minecraft:wither","衰弱"],["minecraft:glowing","発光"]
+  ["minecraft:wither","衰弱"]
 ];
 const LIMIT = 2;   // ふつうは よい・わるい それぞれ2つまで
 
