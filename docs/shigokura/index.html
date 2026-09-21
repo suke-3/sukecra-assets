@@ -424,7 +424,7 @@
   <div class="row">
     <label>かかる時間</label>
     <input type="number" id="seconds" value="10" min="0" max="600" oninput="render()">
-    <span class="hint">秒。⚠️ <b>0 なら待ちません。</b>待つ間は工房の前を離れられません</span>
+    <span class="hint" id="secondsHint">秒。⚠️ <b>0 なら待ちません。</b>待つ間は工房の前を離れられません</span>
   </div>
   <div class="row">
     <label>1回でできる数</label>
@@ -4845,7 +4845,9 @@ function goods() {
     name: val("name"),
     shop: val("shop"),
     note: val("note"),
-    seconds: Number(val("seconds")) || 0,
+    // 🔴 決まりのある品目は欄ではなく決まりから取る（すけさんの指示 2026-09-21）。
+    //    ⚠️ 欄を埋めるのは render() なので、呼ばれる前に書き出されても食い違わないように
+    seconds: (ruleSeconds() !== null) ? ruleSeconds() : (Number(val("seconds")) || 0),
     // 🔴 1回でできる数（2026-09-09）。⚠️ 1 なら書き出さない（今までの形のまま）
     makes: Math.max(1, Number(val("makes")) || 1),
     ingredients: items
@@ -5348,7 +5350,58 @@ function model() {
 }
 
 
+/**
+ * 作る時間の決まり（すけさんの指示 2026-09-21）。
+ *
+ * <p>🔴 <b>「効果に合わせて時間が伸びます。悪い効果は伸びません。」</b>
+ * <ul>
+ *   <li><b>料理</b>……効果なし 10秒。<b>よい効果の合計 10秒ごとに ＋5秒</b>
+ *       （10秒→15秒、20秒→20秒、30秒→25秒…）</li>
+ *   <li><b>家具</b>……15秒</li>
+ *   <li><b>建材</b>……10秒</li>
+ * </ul>
+ * ⚠️ <b>悪い効果（DEBUFFS の一覧）は数えない。</b>
+ * ⚠️ <b>10秒に満たない端数は切り上げて1刻みに数える</b>――
+ * 3秒の効果でも「効果あり」として 15秒（2026-09-21 のはちみつパンケーキと同じ扱い）。
+ * ⚠️ <b>それ以外の品目（薬・洋服・武器など）は決まりが無いので、今までどおり手で入れる。</b>
+ *
+ * @return 決まりがある品目なら秒数、無ければ null
+ */
+function ruleSeconds() {
+  if (mode === "furniture") { return 15; }
+  if (mode === "block") { return 10; }
+  if (mode === "food") {
+    const good = buffs.reduce((n, e) => n + Math.max(0, Number(e.sec) || 0), 0);
+    return 10 + 5 * Math.ceil(good / 10);
+  }
+  return null;
+}
+
+/** 決まりがある品目は、時間の欄を自動で埋めて触れなくする。 */
+function applyRuleSeconds() {
+  const box = document.getElementById("seconds");
+  const hint = document.getElementById("secondsHint");
+  if (!box || !hint) { return; }
+  const want = ruleSeconds();
+  if (want === null) {
+    box.readOnly = false;
+    hint.innerHTML = "秒。⚠️ <b>0 なら待ちません。</b>待つ間は工房の前を離れられません";
+    return;
+  }
+  box.value = want;
+  box.readOnly = true;
+  hint.innerHTML = (mode === "food")
+    ? "秒。🔴 <b>効果に合わせて自動で決まります</b>（効果なし 10秒・よい効果10秒ごとに ＋5秒）。"
+      + "⚠️ <b>わるい効果では伸びません。</b>"
+    : (mode === "furniture")
+    ? "秒。🔴 <b>家具は 15秒に決まっています。</b>"
+    : "秒。🔴 <b>建材は 10秒に決まっています。</b>";
+}
+
 function render() {
+  // 🔴 作る時間は品目と効果から決まる（すけさんの指示 2026-09-21）。
+  //    ⚠️ 書き出しより先に埋める――goods() は欄の値をそのまま読む
+  applyRuleSeconds();
   // 🔴 スイッチを押した直後にも、作る人の説明を切り替える（2026-09-21）
   refreshOwnerHint();
   // 🔴 食べ物の目安を出す（入力のたび）。
